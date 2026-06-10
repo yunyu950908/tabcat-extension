@@ -1,6 +1,6 @@
 {
   "name": "tabcat-extension",
-  "description": "A Chrome extension scaffolded with WXT, React, and TypeScript.",
+  "description": "A Chrome extension for domain-based tab grouping, cleanup, and fast tab switching.",
   "private": true,
   "version": "0.0.0",
   "type": "module",

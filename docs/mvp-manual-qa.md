@@ -12,7 +12,7 @@ pnpm build
 
 Latest local result:
 
-- `pnpm test`: passed, 1 file and 8 tests.
+- `pnpm test`: passed, 2 files and 51 tests.
 - `pnpm compile`: passed.
 - `pnpm build`: passed.
 
