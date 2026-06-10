@@ -13,7 +13,11 @@ import {
   normalizeHostname,
   type TabLike,
 } from './tabGrouping';
-import { normalizeSettings, parseIgnoredDomainsInput } from './settings';
+import {
+  DEFAULT_SETTINGS,
+  normalizeSettings,
+  parseIgnoredDomainsInput,
+} from './settings';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -168,8 +172,8 @@ describe('hostname grouping plan', () => {
 
     expect(plan.groups).toEqual([]);
     expect(plan.skipped).toMatchObject([
-      { id: 1, key: 'docs.google.com', reason: 'ignored-domain' },
-      { id: 2, key: 'docs.google.com', reason: 'ignored-domain' },
+      { id: 1, key: 'google.com', reason: 'ignored-domain' },
+      { id: 2, key: 'google.com', reason: 'ignored-domain' },
       { id: 3, key: 'github.com', reason: 'ignored-domain' },
       { id: 4, key: 'github.com', reason: 'ignored-domain' },
     ]);
@@ -749,6 +753,26 @@ describe('tab group visibility actions', () => {
 });
 
 describe('settings helpers', () => {
+  it('uses root-domain grouping and auto group by default', () => {
+    expect(DEFAULT_SETTINGS).toMatchObject({
+      arrangeTabsAfterGrouping: true,
+      autoGroupNewTabs: true,
+      groupingMode: 'rootDomain',
+    });
+
+    expect(normalizeSettings(null)).toMatchObject({
+      arrangeTabsAfterGrouping: true,
+      autoGroupNewTabs: true,
+      groupingMode: 'rootDomain',
+    });
+
+    expect(normalizeSettings({})).toMatchObject({
+      arrangeTabsAfterGrouping: true,
+      autoGroupNewTabs: true,
+      groupingMode: 'rootDomain',
+    });
+  });
+
   it('normalizes ignored domain input', () => {
     expect(
       parseIgnoredDomainsInput(
@@ -800,8 +824,9 @@ describe('settings helpers', () => {
       }),
     ).toMatchObject({
       arrangeTabsAfterGrouping: true,
-      autoGroupNewTabs: false,
+      autoGroupNewTabs: true,
       collapseNewGroups: false,
+      groupingMode: 'rootDomain',
       ignoredDomains: ['valid.com'],
       includePinnedTabs: false,
       minGroupSize: 4,
@@ -826,7 +851,41 @@ describe('settings helpers', () => {
     });
   });
 
+  it('keeps hostname grouping available as an explicit fallback mode', () => {
+    expect(
+      normalizeSettings({
+        groupingMode: 'hostname',
+      }),
+    ).toMatchObject({
+      groupingMode: 'hostname',
+    });
+
+    expect(
+      normalizeSettings({
+        groupingMode: 'rootDomain',
+      }),
+    ).toMatchObject({
+      groupingMode: 'rootDomain',
+    });
+
+    expect(
+      normalizeSettings({
+        groupingMode: 'invalid',
+      }),
+    ).toMatchObject({
+      groupingMode: 'rootDomain',
+    });
+  });
+
   it('normalizes auto group settings safely', () => {
+    expect(
+      normalizeSettings({
+        autoGroupNewTabs: false,
+      }),
+    ).toMatchObject({
+      autoGroupNewTabs: false,
+    });
+
     expect(
       normalizeSettings({
         autoGroupNewTabs: true,
@@ -840,7 +899,7 @@ describe('settings helpers', () => {
         autoGroupNewTabs: 'true',
       }),
     ).toMatchObject({
-      autoGroupNewTabs: false,
+      autoGroupNewTabs: true,
     });
   });
 });

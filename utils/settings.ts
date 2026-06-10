@@ -25,11 +25,11 @@ export interface TabCatSettings {
 }
 
 export const DEFAULT_SETTINGS: TabCatSettings = {
-  autoGroupNewTabs: false,
+  autoGroupNewTabs: true,
   arrangeTabsAfterGrouping: true,
   collapseNewGroups: false,
   domainRules: [],
-  groupingMode: 'hostname',
+  groupingMode: 'rootDomain',
   ignoredDomains: [],
   includePinnedTabs: false,
   minGroupSize: 2,
@@ -90,7 +90,7 @@ export function normalizeSettings(value: unknown): TabCatSettings {
   const minGroupSize = Number(settings.minGroupSize);
 
   return {
-    autoGroupNewTabs: settings.autoGroupNewTabs === true,
+    autoGroupNewTabs: settings.autoGroupNewTabs !== false,
     arrangeTabsAfterGrouping: settings.arrangeTabsAfterGrouping !== false,
     collapseNewGroups: settings.collapseNewGroups === true,
     domainRules: Array.isArray(settings.domainRules)
@@ -99,7 +99,7 @@ export function normalizeSettings(value: unknown): TabCatSettings {
           .filter((rule): rule is DomainRule => Boolean(rule))
       : DEFAULT_SETTINGS.domainRules,
     groupingMode:
-      settings.groupingMode === 'rootDomain' ? 'rootDomain' : 'hostname',
+      settings.groupingMode === 'hostname' ? 'hostname' : 'rootDomain',
     ignoredDomains: Array.isArray(settings.ignoredDomains)
       ? parseIgnoredDomainsInput(settings.ignoredDomains.join('\n'))
       : DEFAULT_SETTINGS.ignoredDomains,

@@ -940,7 +940,10 @@ function getEligibleTab(
     };
   }
 
-  const groupingKey = getGroupingKey(tab.url, options.groupingMode ?? 'hostname');
+  const groupingKey = getGroupingKey(
+    tab.url,
+    options.groupingMode ?? 'rootDomain',
+  );
 
   if (!groupingKey) {
     return {
