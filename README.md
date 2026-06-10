@@ -15,3 +15,7 @@ pnpm dev
 pnpm compile
 pnpm build
 ```
+
+## QA
+
+MVP manual verification steps live in [docs/mvp-manual-qa.md](docs/mvp-manual-qa.md).
