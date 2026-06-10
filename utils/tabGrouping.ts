@@ -131,6 +131,19 @@ export interface UndoGroupingResult {
   undoneTabCount: number;
 }
 
+export interface UngroupAllPlan {
+  groupCount: number;
+  skippedTabCount: number;
+  tabIds: number[];
+  ungroupedTabCount: number;
+}
+
+export interface UngroupAllResult {
+  groupCount: number;
+  skippedTabCount: number;
+  ungroupedTabCount: number;
+}
+
 export type AutoGroupSkipReason =
   | Exclude<SkipReason, 'singleton'>
   | 'disabled'
@@ -273,6 +286,60 @@ export async function groupCurrentWindowTabs(
   await saveLastGroupingOperation(appliedGroups);
 
   return { appliedGroups, plan };
+}
+
+export function buildUngroupAllPlan(tabs: TabLike[]): UngroupAllPlan {
+  const groupIds = new Set<number>();
+  const tabIds: number[] = [];
+  let skippedTabCount = 0;
+
+  for (const tab of tabs) {
+    if (tab.groupId == null || tab.groupId === NO_GROUP_ID) {
+      continue;
+    }
+
+    groupIds.add(tab.groupId);
+
+    if (tab.id == null) {
+      skippedTabCount += 1;
+      continue;
+    }
+
+    tabIds.push(tab.id);
+  }
+
+  return {
+    groupCount: groupIds.size,
+    skippedTabCount,
+    tabIds,
+    ungroupedTabCount: tabIds.length,
+  };
+}
+
+export async function ungroupAllTabs(
+  options: GroupingOptions = {},
+): Promise<UngroupAllResult> {
+  const settings = await getSettings();
+  const resolvedOptions: GroupingOptions = {
+    ...getGroupingOptionsFromSettings(settings),
+    ...options,
+  };
+  const tabs = await browser.tabs.query(
+    resolvedOptions.scope === 'allWindows' ? {} : { currentWindow: true },
+  );
+  const plan = buildUngroupAllPlan(tabs);
+
+  if (plan.tabIds.length > 0) {
+    await browser.tabs.ungroup(toNonEmptyArray(plan.tabIds));
+  }
+
+  await clearLastGroupingOperation();
+
+  return {
+    groupCount: plan.groupCount,
+    skippedTabCount: plan.skippedTabCount,
+    ungroupedTabCount: plan.ungroupedTabCount,
+  };
 }
 
 export function buildAutoGroupPlan(

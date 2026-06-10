@@ -3,6 +3,7 @@ import {
   buildAutoGroupPlan,
   buildGroupingPlan,
   buildHostnameGroupingPlan,
+  buildUngroupAllPlan,
   getHostnameGroupingKey,
   getRootDomainGroupingKey,
   normalizeHostname,
@@ -245,6 +246,52 @@ describe('hostname grouping plan', () => {
       { id: 1, reason: 'ignored-domain' },
       { id: 2, reason: 'ignored-domain' },
     ]);
+  });
+});
+
+describe('ungroup all plan', () => {
+  it('collects grouped tab ids and counts unique groups', () => {
+    expect(
+      buildUngroupAllPlan([
+        tab(1, 'https://github.com/a', { groupId: 10 }),
+        tab(2, 'https://github.com/b', { groupId: 10 }),
+        tab(3, 'https://example.com/a'),
+        tab(4, 'https://docs.google.com/a', { groupId: 11 }),
+      ]),
+    ).toEqual({
+      groupCount: 2,
+      skippedTabCount: 0,
+      tabIds: [1, 2, 4],
+      ungroupedTabCount: 3,
+    });
+  });
+
+  it('counts grouped tabs without ids as skipped', () => {
+    expect(
+      buildUngroupAllPlan([
+        { groupId: 10, title: 'Missing id' },
+        tab(2, 'https://github.com/b', { groupId: 10 }),
+      ]),
+    ).toEqual({
+      groupCount: 1,
+      skippedTabCount: 1,
+      tabIds: [2],
+      ungroupedTabCount: 1,
+    });
+  });
+
+  it('returns an empty plan when no tabs are grouped', () => {
+    expect(
+      buildUngroupAllPlan([
+        tab(1, 'https://github.com/a'),
+        tab(2, 'https://example.com/a'),
+      ]),
+    ).toEqual({
+      groupCount: 0,
+      skippedTabCount: 0,
+      tabIds: [],
+      ungroupedTabCount: 0,
+    });
   });
 });
 
