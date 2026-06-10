@@ -11,6 +11,8 @@ import {
 } from '@/utils/tabSearch';
 import './TabSwitcher.css';
 
+type InputMode = 'keyboard' | 'pointer';
+
 function TabSwitcher() {
   const [context] = useState(parseContext);
   const [error, setError] = useState<string | null>(null);
@@ -18,6 +20,7 @@ function TabSwitcher() {
   const [isLoading, setIsLoading] = useState(true);
   const [items, setItems] = useState<TabSearchItem[]>([]);
   const [paletteWindowId, setPaletteWindowId] = useState<number | undefined>();
+  const [inputMode, setInputMode] = useState<InputMode>('keyboard');
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -94,6 +97,7 @@ function TabSwitcher() {
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'ArrowDown') {
       event.preventDefault();
+      setInputMode('keyboard');
       setSelectedIndex((currentIndex) =>
         results.length === 0 ? 0 : (currentIndex + 1) % results.length,
       );
@@ -102,6 +106,7 @@ function TabSwitcher() {
 
     if (event.key === 'ArrowUp') {
       event.preventDefault();
+      setInputMode('keyboard');
       setSelectedIndex((currentIndex) =>
         results.length === 0
           ? 0
@@ -124,7 +129,7 @@ function TabSwitcher() {
 
   return (
     <main className="switcher-shell">
-      <section className="search-surface">
+      <section className="search-surface" data-input-mode={inputMode}>
         <div className="search-bar">
           <div className="search-mark" aria-hidden="true">
             T
@@ -135,6 +140,7 @@ function TabSwitcher() {
             placeholder="Search tabs"
             value={query}
             onChange={(event) => {
+              setInputMode('keyboard');
               setQuery(event.target.value);
               setSelectedIndex(0);
             }}
@@ -161,7 +167,8 @@ function TabSwitcher() {
                 onActivate={() => {
                   void activateSelectedItem(item);
                 }}
-                onSelect={() => {
+                onPointerSelect={() => {
+                  setInputMode('pointer');
                   setSelectedIndex(index);
                 }}
               />
@@ -176,13 +183,13 @@ function ResultItem({
   isSelected,
   item,
   onActivate,
-  onSelect,
+  onPointerSelect,
   windowLabel,
 }: {
   isSelected: boolean;
   item: TabSearchResult;
   onActivate: () => void;
-  onSelect: () => void;
+  onPointerSelect: () => void;
   windowLabel: string;
 }) {
   return (
@@ -191,7 +198,7 @@ function ResultItem({
       className="result-item"
       type="button"
       onClick={onActivate}
-      onMouseEnter={onSelect}
+      onPointerMove={onPointerSelect}
     >
       <span className="favicon-frame">
         {item.favIconUrl ? (

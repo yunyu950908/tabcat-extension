@@ -345,6 +345,7 @@ function showTabcatSwitcherOverlay(context: TabSearchContext): void {
     windowId: number;
     windowLabel?: string;
   };
+  type InputMode = 'keyboard' | 'pointer';
 
   const rootId = 'tabcat-switcher-overlay-root';
   const existingRoot = document.getElementById(rootId);
@@ -483,10 +484,14 @@ function showTabcatSwitcherOverlay(context: TabSearchContext): void {
         width: 100%;
       }
 
-      .tabcat-result:hover,
       .tabcat-result[aria-selected="true"] {
         background: #e0f2fe;
         border-color: #7dd3fc;
+      }
+
+      .tabcat-panel[data-input-mode="pointer"] .tabcat-result:hover:not([aria-selected="true"]) {
+        background: #f8fafc;
+        border-color: #dbeafe;
       }
 
       .tabcat-favicon {
@@ -588,7 +593,7 @@ function showTabcatSwitcherOverlay(context: TabSearchContext): void {
       }
     </style>
     <div class="tabcat-overlay">
-      <section aria-label="Search tabs" aria-modal="true" class="tabcat-panel" role="dialog">
+      <section aria-label="Search tabs" aria-modal="true" class="tabcat-panel" data-input-mode="keyboard" role="dialog">
         <div class="tabcat-search-bar">
           <span aria-hidden="true" class="tabcat-mark">T</span>
           <input aria-label="Search tabs" autocomplete="off" class="tabcat-search-input" placeholder="Search tabs" spellcheck="false" type="search" />
@@ -602,6 +607,10 @@ function showTabcatSwitcherOverlay(context: TabSearchContext): void {
   const overlay = getRequiredElement<HTMLDivElement>(
     shadowRoot,
     '.tabcat-overlay',
+  );
+  const panel = getRequiredElement<HTMLElement>(
+    shadowRoot,
+    '.tabcat-panel',
   );
   const input = getRequiredElement<HTMLInputElement>(
     shadowRoot,
@@ -631,6 +640,7 @@ function showTabcatSwitcherOverlay(context: TabSearchContext): void {
   input.addEventListener('input', () => {
     query = input.value;
     selectedIndex = 0;
+    setInputMode('keyboard');
     void search(query);
   });
 
@@ -645,12 +655,14 @@ function showTabcatSwitcherOverlay(context: TabSearchContext): void {
 
     if (keyboardEvent.key === 'ArrowDown') {
       event.preventDefault();
+      setInputMode('keyboard');
       moveSelection(1);
       return;
     }
 
     if (keyboardEvent.key === 'ArrowUp') {
       event.preventDefault();
+      setInputMode('keyboard');
       moveSelection(-1);
       return;
     }
@@ -787,7 +799,8 @@ function showTabcatSwitcherOverlay(context: TabSearchContext): void {
     copy.append(title, meta);
     button.append(favicon, copy);
 
-    button.addEventListener('mouseenter', () => {
+    button.addEventListener('pointermove', () => {
+      setInputMode('pointer');
       selectedIndex = index;
       updateSelection();
     });
@@ -819,6 +832,10 @@ function showTabcatSwitcherOverlay(context: TabSearchContext): void {
 
     selectedIndex = (selectedIndex + delta + results.length) % results.length;
     updateSelection();
+  }
+
+  function setInputMode(mode: InputMode): void {
+    panel.dataset.inputMode = mode;
   }
 
   function updateSelection(): void {
