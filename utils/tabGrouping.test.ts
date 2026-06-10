@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildGroupingPlan,
   buildHostnameGroupingPlan,
   getHostnameGroupingKey,
+  getRootDomainGroupingKey,
   normalizeHostname,
   type TabLike,
 } from './tabGrouping';
+import { parseIgnoredDomainsInput } from './settings';
 
 describe('hostname grouping keys', () => {
   it('normalizes case and a leading www subdomain', () => {
@@ -26,6 +29,18 @@ describe('hostname grouping keys', () => {
   it('does not collapse public-suffix domains in hostname mode', () => {
     expect(getHostnameGroupingKey('https://news.bbc.co.uk/a')).toBe(
       'news.bbc.co.uk',
+    );
+  });
+
+  it('can resolve root-domain grouping keys', () => {
+    expect(getRootDomainGroupingKey('https://docs.google.com/a')).toBe(
+      'google.com',
+    );
+    expect(getRootDomainGroupingKey('https://drive.google.com/b')).toBe(
+      'google.com',
+    );
+    expect(getRootDomainGroupingKey('https://news.bbc.co.uk/a')).toBe(
+      'bbc.co.uk',
     );
   });
 
@@ -109,6 +124,54 @@ describe('hostname grouping plan', () => {
 
     expect(plan.groups).toHaveLength(1);
     expect(plan.groups[0].tabIds).toEqual([1, 2]);
+  });
+
+  it('can group sibling subdomains by root domain when configured', () => {
+    const plan = buildGroupingPlan(
+      [
+        tab(1, 'https://docs.google.com/a'),
+        tab(2, 'https://drive.google.com/b'),
+      ],
+      { groupingMode: 'rootDomain' },
+    );
+
+    expect(plan.groups).toMatchObject([
+      {
+        key: 'google.com',
+        tabIds: [1, 2],
+        title: 'google.com',
+      },
+    ]);
+  });
+
+  it('skips ignored domains by hostname or root domain', () => {
+    const plan = buildGroupingPlan(
+      [
+        tab(1, 'https://docs.google.com/a'),
+        tab(2, 'https://docs.google.com/b'),
+        tab(3, 'https://github.com/a'),
+        tab(4, 'https://github.com/b'),
+      ],
+      { ignoredDomains: ['google.com', 'github.com'] },
+    );
+
+    expect(plan.groups).toEqual([]);
+    expect(plan.skipped).toMatchObject([
+      { id: 1, key: 'docs.google.com', reason: 'ignored-domain' },
+      { id: 2, key: 'docs.google.com', reason: 'ignored-domain' },
+      { id: 3, key: 'github.com', reason: 'ignored-domain' },
+      { id: 4, key: 'github.com', reason: 'ignored-domain' },
+    ]);
+  });
+});
+
+describe('settings helpers', () => {
+  it('normalizes ignored domain input', () => {
+    expect(
+      parseIgnoredDomainsInput(
+        'https://www.github.com/a\nDocs.Google.com, localhost:3000',
+      ),
+    ).toEqual(['docs.google.com', 'github.com', 'localhost']);
   });
 });
 

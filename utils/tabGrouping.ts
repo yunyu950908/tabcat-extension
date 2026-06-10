@@ -1,3 +1,6 @@
+import { getDomain } from 'tldts';
+import { getSettings, type GroupingMode, type GroupingScope } from './settings';
+
 const DEFAULT_MIN_GROUP_SIZE = 2;
 const LAST_GROUPING_OPERATION_KEY = 'tabcat:lastGroupingOperation';
 const NO_GROUP_ID = -1;
@@ -37,6 +40,7 @@ export interface TabLike {
 
 export type SkipReason =
   | 'already-grouped'
+  | 'ignored-domain'
   | 'internal-url'
   | 'invalid-url'
   | 'missing-id'
@@ -44,8 +48,12 @@ export type SkipReason =
   | 'singleton';
 
 export interface GroupingOptions {
+  collapseNewGroups?: boolean;
+  groupingMode?: GroupingMode;
+  ignoredDomains?: string[];
   includePinnedTabs?: boolean;
   minGroupSize?: number;
+  scope?: GroupingScope;
 }
 
 export interface PlannedTab {
@@ -110,6 +118,13 @@ export interface UndoGroupingResult {
 }
 
 export function buildHostnameGroupingPlan(
+  tabs: TabLike[],
+  options: GroupingOptions = {},
+): GroupingPlan {
+  return buildGroupingPlan(tabs, { ...options, groupingMode: 'hostname' });
+}
+
+export function buildGroupingPlan(
   tabs: TabLike[],
   options: GroupingOptions = {},
 ): GroupingPlan {
@@ -180,14 +195,33 @@ export function buildHostnameGroupingPlan(
 export async function groupCurrentWindowTabsByHostname(
   options: GroupingOptions = {},
 ): Promise<ApplyGroupingResult> {
-  const tabs = await browser.tabs.query({ currentWindow: true });
-  const plan = buildHostnameGroupingPlan(tabs, options);
+  return groupCurrentWindowTabs({ ...options, groupingMode: 'hostname' });
+}
+
+export async function groupCurrentWindowTabs(
+  options: GroupingOptions = {},
+): Promise<ApplyGroupingResult> {
+  const settings = await getSettings();
+  const resolvedOptions: GroupingOptions = {
+    collapseNewGroups: settings.collapseNewGroups,
+    groupingMode: settings.groupingMode,
+    ignoredDomains: settings.ignoredDomains,
+    includePinnedTabs: settings.includePinnedTabs,
+    minGroupSize: settings.minGroupSize,
+    scope: settings.scope,
+    ...options,
+  };
+  const tabs = await browser.tabs.query(
+    resolvedOptions.scope === 'allWindows' ? {} : { currentWindow: true },
+  );
+  const plan = buildGroupingPlan(tabs, resolvedOptions);
   const appliedGroups: AppliedGroup[] = [];
 
   for (const group of plan.groups) {
     const tabIds = toNonEmptyArray(group.tabIds);
     const tabGroupId = await (browser.tabs.group({ tabIds }) as Promise<number>);
     await browser.tabGroups.update(tabGroupId, {
+      collapsed: resolvedOptions.collapseNewGroups,
       color: group.color,
       title: group.title,
     });
@@ -258,6 +292,17 @@ export async function undoLastGroupingOperation(): Promise<UndoGroupingResult> {
 }
 
 export function getHostnameGroupingKey(url: string): string | null {
+  return getGroupingKey(url, 'hostname')?.key ?? null;
+}
+
+export function getRootDomainGroupingKey(url: string): string | null {
+  return getGroupingKey(url, 'rootDomain')?.key ?? null;
+}
+
+export function getGroupingKey(
+  url: string,
+  groupingMode: GroupingMode,
+): { hostname: string; key: string; rootDomain: string | null } | null {
   try {
     const parsedUrl = new URL(url);
 
@@ -265,7 +310,14 @@ export function getHostnameGroupingKey(url: string): string | null {
       return null;
     }
 
-    return normalizeHostname(parsedUrl.hostname);
+    const hostname = normalizeHostname(parsedUrl.hostname);
+    const rootDomain = getDomain(hostname, { allowPrivateDomains: true });
+
+    return {
+      hostname,
+      key: groupingMode === 'rootDomain' ? rootDomain ?? hostname : hostname,
+      rootDomain,
+    };
   } catch {
     return null;
   }
@@ -403,9 +455,9 @@ function getEligibleTab(
     };
   }
 
-  const key = getHostnameGroupingKey(tab.url);
+  const groupingKey = getGroupingKey(tab.url, options.groupingMode ?? 'hostname');
 
-  if (!key) {
+  if (!groupingKey) {
     return {
       ok: false,
       skipped: {
@@ -417,8 +469,21 @@ function getEligibleTab(
     };
   }
 
+  if (isIgnoredDomain(groupingKey, options.ignoredDomains ?? [])) {
+    return {
+      ok: false,
+      skipped: {
+        id: tab.id,
+        key: groupingKey.key,
+        reason: 'ignored-domain',
+        title: tab.title,
+        url: tab.url,
+      },
+    };
+  }
+
   return {
-    key,
+    key: groupingKey.key,
     ok: true,
     tab: {
       id: tab.id,
@@ -427,4 +492,17 @@ function getEligibleTab(
       windowId: tab.windowId,
     },
   };
+}
+
+function isIgnoredDomain(
+  groupingKey: { hostname: string; key: string; rootDomain: string | null },
+  ignoredDomains: string[],
+): boolean {
+  const ignored = new Set(ignoredDomains.map(normalizeHostname));
+
+  return (
+    ignored.has(groupingKey.key) ||
+    ignored.has(groupingKey.hostname) ||
+    (groupingKey.rootDomain != null && ignored.has(groupingKey.rootDomain))
+  );
 }

@@ -8,7 +8,7 @@ export default defineConfig({
     },
     commands: {
       'tidy-tabs': {
-        description: 'Group tabs in the current window by hostname',
+        description: 'Group tabs using TabCat settings',
         suggested_key: {
           default: 'Alt+Shift+G',
         },
