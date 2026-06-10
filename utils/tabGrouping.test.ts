@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  arrangeTabsAfterGrouping,
   buildArrangeTabsPlan,
   buildAutoGroupPlan,
   buildGroupingPlan,
@@ -11,6 +12,11 @@ import {
   type TabLike,
 } from './tabGrouping';
 import { normalizeSettings, parseIgnoredDomainsInput } from './settings';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 describe('hostname grouping keys', () => {
   it('normalizes case and a leading www subdomain', () => {
@@ -265,6 +271,7 @@ describe('arrange tabs plan', () => {
       movedTabCount: 3,
       windows: [
         {
+          groupIds: [10, 11],
           startIndex: 1,
           tabIdGroups: [[3, 5], [4]],
           tabIds: [3, 5, 4],
@@ -296,6 +303,7 @@ describe('arrange tabs plan', () => {
       movedTabCount: 2,
       windows: [
         {
+          groupIds: [10],
           startIndex: 0,
           tabIdGroups: [[2, 3]],
           tabIds: [2, 3],
@@ -325,12 +333,14 @@ describe('arrange tabs plan', () => {
       movedTabCount: 2,
       windows: [
         {
+          groupIds: [10],
           startIndex: 0,
           tabIdGroups: [[2]],
           tabIds: [2],
           windowId: 1,
         },
         {
+          groupIds: [11],
           startIndex: 0,
           tabIdGroups: [[3]],
           tabIds: [3],
@@ -350,6 +360,53 @@ describe('arrange tabs plan', () => {
       movedTabCount: 0,
       windows: [],
     });
+  });
+
+  it('moves whole tab groups instead of moving grouped tabs directly', async () => {
+    const moveGroup = vi.fn(async (groupId: number) => ({
+      collapsed: false,
+      color: 'blue',
+      id: groupId,
+      windowId: 1,
+    }));
+    const moveTabs = vi.fn();
+
+    vi.stubGlobal('browser', {
+      tabGroups: {
+        move: moveGroup,
+      },
+      tabs: {
+        move: moveTabs,
+      },
+    });
+
+    await arrangeTabsAfterGrouping(
+      [
+        tab(1, 'https://ungrouped.example.com', { index: 0 }),
+        tab(2, 'https://github.com/a', { index: 1 }),
+        tab(3, 'https://github.com/b', { index: 2 }),
+        tab(4, 'https://docs.google.com/a', { groupId: 11, index: 3 }),
+      ],
+      [
+        {
+          color: 'green',
+          key: 'github.com',
+          tabGroupId: 10,
+          tabIds: [2, 3],
+          title: 'github.com',
+        },
+      ],
+    );
+
+    expect(moveGroup).toHaveBeenNthCalledWith(1, 11, {
+      index: 0,
+      windowId: 1,
+    });
+    expect(moveGroup).toHaveBeenNthCalledWith(2, 10, {
+      index: 0,
+      windowId: 1,
+    });
+    expect(moveTabs).not.toHaveBeenCalled();
   });
 });
 
