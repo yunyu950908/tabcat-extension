@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildArrangeTabsPlan,
   buildAutoGroupPlan,
   buildGroupingPlan,
   buildHostnameGroupingPlan,
@@ -249,6 +250,109 @@ describe('hostname grouping plan', () => {
   });
 });
 
+describe('arrange tabs plan', () => {
+  it('moves grouped tabs left and keeps group blocks in first-seen order', () => {
+    expect(
+      buildArrangeTabsPlan([
+        tab(1, 'https://pinned.example.com', { index: 0, pinned: true }),
+        tab(2, 'https://ungrouped.example.com', { index: 1 }),
+        tab(3, 'https://github.com/a', { groupId: 10, index: 2 }),
+        tab(4, 'https://docs.google.com/a', { groupId: 11, index: 3 }),
+        tab(5, 'https://github.com/b', { groupId: 10, index: 4 }),
+        tab(6, 'https://later.example.com', { index: 5 }),
+      ]),
+    ).toEqual({
+      movedTabCount: 3,
+      windows: [
+        {
+          startIndex: 1,
+          tabIdGroups: [[3, 5], [4]],
+          tabIds: [3, 5, 4],
+          windowId: 1,
+        },
+      ],
+    });
+  });
+
+  it('uses newly applied groups when planning manual tidy arrangement', () => {
+    expect(
+      buildArrangeTabsPlan(
+        [
+          tab(1, 'https://ungrouped.example.com', { index: 0 }),
+          tab(2, 'https://github.com/a', { index: 1 }),
+          tab(3, 'https://github.com/b', { index: 2 }),
+        ],
+        [
+          {
+            color: 'green',
+            key: 'github.com',
+            tabGroupId: 10,
+            tabIds: [2, 3],
+            title: 'github.com',
+          },
+        ],
+      ),
+    ).toEqual({
+      movedTabCount: 2,
+      windows: [
+        {
+          startIndex: 0,
+          tabIdGroups: [[2, 3]],
+          tabIds: [2, 3],
+          windowId: 1,
+        },
+      ],
+    });
+  });
+
+  it('plans each window independently', () => {
+    expect(
+      buildArrangeTabsPlan([
+        tab(1, 'https://ungrouped.example.com', { index: 0, windowId: 1 }),
+        tab(2, 'https://github.com/a', {
+          groupId: 10,
+          index: 1,
+          windowId: 1,
+        }),
+        tab(3, 'https://docs.google.com/a', {
+          groupId: 11,
+          index: 0,
+          windowId: 2,
+        }),
+        tab(4, 'https://example.com/a', { index: 1, windowId: 2 }),
+      ]),
+    ).toEqual({
+      movedTabCount: 2,
+      windows: [
+        {
+          startIndex: 0,
+          tabIdGroups: [[2]],
+          tabIds: [2],
+          windowId: 1,
+        },
+        {
+          startIndex: 0,
+          tabIdGroups: [[3]],
+          tabIds: [3],
+          windowId: 2,
+        },
+      ],
+    });
+  });
+
+  it('returns no moves when no tabs are grouped', () => {
+    expect(
+      buildArrangeTabsPlan([
+        tab(1, 'https://github.com/a', { index: 0 }),
+        tab(2, 'https://example.com/a', { index: 1 }),
+      ]),
+    ).toEqual({
+      movedTabCount: 0,
+      windows: [],
+    });
+  });
+});
+
 describe('ungroup all plan', () => {
   it('collects grouped tab ids and counts unique groups', () => {
     expect(
@@ -494,11 +598,30 @@ describe('settings helpers', () => {
         ignoredDomains: ['valid.com', 'not valid.com'],
       }),
     ).toMatchObject({
+      arrangeTabsAfterGrouping: true,
       autoGroupNewTabs: false,
       collapseNewGroups: false,
       ignoredDomains: ['valid.com'],
       includePinnedTabs: false,
       minGroupSize: 4,
+    });
+  });
+
+  it('normalizes arrange tab settings safely', () => {
+    expect(
+      normalizeSettings({
+        arrangeTabsAfterGrouping: false,
+      }),
+    ).toMatchObject({
+      arrangeTabsAfterGrouping: false,
+    });
+
+    expect(
+      normalizeSettings({
+        arrangeTabsAfterGrouping: 'false',
+      }),
+    ).toMatchObject({
+      arrangeTabsAfterGrouping: true,
     });
   });
 

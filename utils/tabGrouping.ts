@@ -44,6 +44,7 @@ export interface TabLike {
   active?: boolean;
   groupId?: number;
   id?: number;
+  index?: number;
   pinned?: boolean;
   title?: string;
   url?: string;
@@ -61,6 +62,7 @@ export type SkipReason =
 
 export interface GroupingOptions {
   autoGroupNewTabs?: boolean;
+  arrangeTabsAfterGrouping?: boolean;
   collapseNewGroups?: boolean;
   domainRules?: DomainRule[];
   groupingMode?: GroupingMode;
@@ -116,6 +118,7 @@ export interface AppliedGroup {
 
 export interface ApplyGroupingResult {
   appliedGroups: AppliedGroup[];
+  arrangement: ArrangeTabsResult | null;
   plan: GroupingPlan;
 }
 
@@ -142,6 +145,23 @@ export interface UngroupAllResult {
   groupCount: number;
   skippedTabCount: number;
   ungroupedTabCount: number;
+}
+
+export interface ArrangeTabsWindowPlan {
+  startIndex: number;
+  tabIdGroups: number[][];
+  tabIds: number[];
+  windowId?: number;
+}
+
+export interface ArrangeTabsPlan {
+  movedTabCount: number;
+  windows: ArrangeTabsWindowPlan[];
+}
+
+export interface ArrangeTabsResult {
+  movedTabCount: number;
+  windowCount: number;
 }
 
 export type AutoGroupSkipReason =
@@ -283,9 +303,114 @@ export async function groupCurrentWindowTabs(
     });
   }
 
+  const arrangement = resolvedOptions.arrangeTabsAfterGrouping
+    ? await arrangeTabsAfterGrouping(tabs, appliedGroups)
+    : null;
+
   await saveLastGroupingOperation(appliedGroups);
 
-  return { appliedGroups, plan };
+  return { appliedGroups, arrangement, plan };
+}
+
+export function buildArrangeTabsPlan(
+  tabs: TabLike[],
+  appliedGroups: AppliedGroup[] = [],
+): ArrangeTabsPlan {
+  const appliedGroupIdsByTabId = new Map<number, number>();
+
+  for (const group of appliedGroups) {
+    for (const tabId of group.tabIds) {
+      appliedGroupIdsByTabId.set(tabId, group.tabGroupId);
+    }
+  }
+
+  const tabsByWindow = new Map<string, Array<TabLike & { originalIndex: number }>>();
+
+  tabs.forEach((tab, originalIndex) => {
+    const key = String(tab.windowId ?? 'unknown');
+    const windowTabs = tabsByWindow.get(key) ?? [];
+    windowTabs.push({ ...tab, originalIndex });
+    tabsByWindow.set(key, windowTabs);
+  });
+
+  const windows: ArrangeTabsWindowPlan[] = [];
+
+  for (const windowTabs of tabsByWindow.values()) {
+    const sortedTabs = [...windowTabs].sort(
+      (a, b) => getTabOrder(a) - getTabOrder(b),
+    );
+    const pinnedCount = sortedTabs.filter((tab) => tab.pinned).length;
+    const groupBlocks = new Map<
+      number,
+      { firstOrder: number; tabIds: number[] }
+    >();
+
+    for (const tab of sortedTabs) {
+      if (tab.pinned || tab.id == null) {
+        continue;
+      }
+
+      const groupId = getArrangedGroupId(tab, appliedGroupIdsByTabId);
+
+      if (groupId == null) {
+        continue;
+      }
+
+      const block = groupBlocks.get(groupId) ?? {
+        firstOrder: getTabOrder(tab),
+        tabIds: [],
+      };
+      block.tabIds.push(tab.id);
+      groupBlocks.set(groupId, block);
+    }
+
+    const tabIds = [...groupBlocks.values()]
+      .sort((a, b) => a.firstOrder - b.firstOrder)
+      .flatMap((block) => block.tabIds);
+
+    if (tabIds.length === 0) {
+      continue;
+    }
+
+    const windowId = sortedTabs.find((tab) => tab.windowId != null)?.windowId;
+    windows.push({
+      ...(windowId != null && { windowId }),
+      startIndex: pinnedCount,
+      tabIdGroups: [...groupBlocks.values()]
+        .sort((a, b) => a.firstOrder - b.firstOrder)
+        .map((block) => block.tabIds),
+      tabIds,
+    });
+  }
+
+  return {
+    movedTabCount: windows.reduce(
+      (sum, windowPlan) => sum + windowPlan.tabIds.length,
+      0,
+    ),
+    windows,
+  };
+}
+
+export async function arrangeTabsAfterGrouping(
+  tabs: TabLike[],
+  appliedGroups: AppliedGroup[] = [],
+): Promise<ArrangeTabsResult> {
+  const plan = buildArrangeTabsPlan(tabs, appliedGroups);
+
+  for (const windowPlan of plan.windows) {
+    for (const tabIds of [...windowPlan.tabIdGroups].reverse()) {
+      await browser.tabs.move(tabIds, {
+        index: windowPlan.startIndex,
+        ...(windowPlan.windowId != null && { windowId: windowPlan.windowId }),
+      });
+    }
+  }
+
+  return {
+    movedTabCount: plan.movedTabCount,
+    windowCount: plan.windows.length,
+  };
 }
 
 export function buildUngroupAllPlan(tabs: TabLike[]): UngroupAllPlan {
@@ -622,6 +747,7 @@ function getGroupingOptionsFromSettings(
 ): GroupingOptions {
   return {
     autoGroupNewTabs: settings.autoGroupNewTabs,
+    arrangeTabsAfterGrouping: settings.arrangeTabsAfterGrouping,
     collapseNewGroups: settings.collapseNewGroups,
     domainRules: settings.domainRules,
     groupingMode: settings.groupingMode,
@@ -630,6 +756,25 @@ function getGroupingOptionsFromSettings(
     minGroupSize: settings.minGroupSize,
     scope: settings.scope,
   };
+}
+
+function getTabOrder(tab: TabLike & { originalIndex: number }): number {
+  return tab.index ?? tab.originalIndex;
+}
+
+function getArrangedGroupId(
+  tab: TabLike,
+  appliedGroupIdsByTabId: Map<number, number>,
+): number | null {
+  if (tab.id != null) {
+    const appliedGroupId = appliedGroupIdsByTabId.get(tab.id);
+
+    if (appliedGroupId != null) {
+      return appliedGroupId;
+    }
+  }
+
+  return tab.groupId != null && tab.groupId !== NO_GROUP_ID ? tab.groupId : null;
 }
 
 function toAutoGroupSkipReason(reason: SkipReason): AutoGroupSkipReason {
