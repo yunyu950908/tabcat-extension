@@ -153,11 +153,10 @@ export interface UngroupAllResult {
   ungroupedTabCount: number;
 }
 
-export type TabGroupVisibilityAction = 'collapseOthers' | 'expandAll';
+export type TabGroupVisibilityAction = 'collapseAll' | 'expandAll';
 
 export interface TabGroupVisibilityResult {
   action: TabGroupVisibilityAction;
-  activeGroupId: number | null;
   collapsedGroupCount: number;
   expandedGroupCount: number;
   groupCount: number;
@@ -486,56 +485,30 @@ export async function ungroupAllTabs(
   };
 }
 
-export async function collapseOtherTabGroups(
+export async function collapseAllTabGroups(
   options: GroupingOptions = {},
 ): Promise<TabGroupVisibilityResult> {
   const settings = await getSettings();
   const scope = options.scope ?? settings.scope;
   const activeTab = await getActiveTab();
-  const activeGroupId =
-    activeTab?.groupId != null && activeTab.groupId !== NO_GROUP_ID
-      ? activeTab.groupId
-      : null;
-
-  if (activeGroupId == null) {
-    return {
-      action: 'collapseOthers',
-      activeGroupId: null,
-      collapsedGroupCount: 0,
-      expandedGroupCount: 0,
-      groupCount: 0,
-      unchangedGroupCount: 0,
-    };
-  }
-
   const groups = await queryTabGroupsForScope(scope, activeTab?.windowId);
   let collapsedGroupCount = 0;
-  let expandedGroupCount = 0;
 
   for (const group of groups) {
-    if (group.id === activeGroupId) {
-      if (group.collapsed) {
-        await browser.tabGroups.update(group.id, { collapsed: false });
-        expandedGroupCount += 1;
-      }
-
+    if (group.collapsed) {
       continue;
     }
 
-    if (!group.collapsed) {
-      await browser.tabGroups.update(group.id, { collapsed: true });
-      collapsedGroupCount += 1;
-    }
+    await browser.tabGroups.update(group.id, { collapsed: true });
+    collapsedGroupCount += 1;
   }
 
   return {
-    action: 'collapseOthers',
-    activeGroupId,
+    action: 'collapseAll',
     collapsedGroupCount,
-    expandedGroupCount,
+    expandedGroupCount: 0,
     groupCount: groups.length,
-    unchangedGroupCount:
-      groups.length - collapsedGroupCount - expandedGroupCount,
+    unchangedGroupCount: groups.length - collapsedGroupCount,
   };
 }
 
@@ -559,7 +532,6 @@ export async function expandAllTabGroups(
 
   return {
     action: 'expandAll',
-    activeGroupId: null,
     collapsedGroupCount: 0,
     expandedGroupCount,
     groupCount: groups.length,

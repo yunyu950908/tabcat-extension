@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  collapseOtherTabGroups,
+  collapseAllTabGroups,
   expandAllTabGroups,
   getLastGroupingOperation,
   groupCurrentWindowTabs,
@@ -17,13 +17,13 @@ type SummaryState =
       summary: GroupingSummary;
     }
   | {
-      kind: 'collapseOthers' | 'expandAll';
+      kind: 'collapseAll' | 'expandAll';
       summary: TabGroupVisibilityResult;
     };
 
 function App() {
   const [error, setError] = useState<string | null>(null);
-  const [isCollapsingOthers, setIsCollapsingOthers] = useState(false);
+  const [isCollapsingGroups, setIsCollapsingGroups] = useState(false);
   const [isExpandingGroups, setIsExpandingGroups] = useState(false);
   const [isUngrouping, setIsUngrouping] = useState(false);
   const [isTidying, setIsTidying] = useState(false);
@@ -79,23 +79,17 @@ function App() {
     }
   };
 
-  const handleCollapseOthers = async () => {
+  const handleCollapseAll = async () => {
     setError(null);
-    setIsCollapsingOthers(true);
+    setIsCollapsingGroups(true);
 
     try {
-      const result = await collapseOtherTabGroups();
-
-      if (result.activeGroupId == null) {
-        setError('Open a tab inside a group first.');
-        return;
-      }
-
-      setSummaryState({ kind: 'collapseOthers', summary: result });
+      const result = await collapseAllTabGroups();
+      setSummaryState({ kind: 'collapseAll', summary: result });
     } catch (caughtError) {
       setError(getErrorMessage(caughtError));
     } finally {
-      setIsCollapsingOthers(false);
+      setIsCollapsingGroups(false);
     }
   };
 
@@ -140,7 +134,7 @@ function App() {
     isTidying ||
     isUndoing ||
     isUngrouping ||
-    isCollapsingOthers ||
+    isCollapsingGroups ||
     isExpandingGroups;
 
   return (
@@ -162,10 +156,10 @@ function App() {
         <button
           className="secondary-action"
           disabled={isBusy}
-          onClick={handleCollapseOthers}
+          onClick={handleCollapseAll}
           type="button"
         >
-          {isCollapsingOthers ? 'Collapsing...' : 'Collapse others'}
+          {isCollapsingGroups ? 'Collapsing...' : 'Collapse all'}
         </button>
         <button
           className="secondary-action"
@@ -226,13 +220,13 @@ function SummaryPanel({ summaryState }: { summaryState: SummaryState }) {
 function getSummaryItems(
   summaryState: SummaryState,
 ): Array<{ label: string; value: number }> {
-  if (summaryState.kind === 'collapseOthers') {
+  if (summaryState.kind === 'collapseAll') {
     return [
       { label: 'groups', value: summaryState.summary.groupCount },
       { label: 'collapsed', value: summaryState.summary.collapsedGroupCount },
       {
-        label: 'kept open',
-        value: summaryState.summary.activeGroupId == null ? 0 : 1,
+        label: 'already closed',
+        value: summaryState.summary.unchangedGroupCount,
       },
     ];
   }
