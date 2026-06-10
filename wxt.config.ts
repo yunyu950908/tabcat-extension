@@ -7,6 +7,12 @@ export default defineConfig({
       default_title: 'TabCat',
     },
     commands: {
+      'open-tab-switcher': {
+        description: 'Open TabCat tab switcher',
+        suggested_key: {
+          default: 'Ctrl+Shift+K',
+        },
+      },
       'tidy-tabs': {
         description: 'Group tabs using TabCat settings',
         suggested_key: {
@@ -14,7 +20,7 @@ export default defineConfig({
         },
       },
     },
-    permissions: ['tabs', 'tabGroups', 'storage'],
+    permissions: ['tabs', 'tabGroups', 'storage', 'scripting', 'activeTab'],
   },
   modules: ['@wxt-dev/module-react'],
 });
