@@ -1,7 +1,17 @@
 import {
   autoGroupTabIntoExistingGroup,
+  collapseAllTabGroups,
+  expandAllTabGroups,
+  getLastGroupingOperation,
   groupCurrentWindowTabs,
+  undoLastGroupingOperation,
+  ungroupAllTabs,
 } from '@/utils/tabGrouping';
+import {
+  isTabGroupingActionName,
+  TAB_GROUPING_ACTION_MESSAGE,
+  type TabGroupingActionMessage,
+} from '@/utils/tabGroupingMessages';
 import {
   activateTabSearchItem,
   filterTabSearchItems,
@@ -47,6 +57,8 @@ type TabSearchOverlayResult = TabSearchResult & {
   windowLabel: string;
 };
 
+let tabGroupingOperationQueue: Promise<void> = Promise.resolve();
+
 export default defineBackground(() => {
   browser.commands.onCommand.addListener((command) => {
     if (command === OPEN_TAB_SWITCHER_COMMAND) {
@@ -58,7 +70,7 @@ export default defineBackground(() => {
 
     if (command !== TIDY_TABS_COMMAND) return;
 
-    void groupCurrentWindowTabs().catch((error) => {
+    void queueTabGroupingOperation(() => groupCurrentWindowTabs()).catch((error) => {
       console.error('Failed to tidy tabs from command.', error);
     });
   });
@@ -66,13 +78,19 @@ export default defineBackground(() => {
   browser.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
     if (changeInfo.status !== 'complete' || !tab.url) return;
 
-    void autoGroupTabIntoExistingGroup(tab).catch((error) => {
+    void queueTabGroupingOperation(() =>
+      autoGroupTabIntoExistingGroup(tab),
+    ).catch((error) => {
       console.error('Failed to auto group tab.', error);
     });
   });
 
   browser.runtime.onMessage.addListener((message) => {
     if (!isTabSwitcherMessage(message)) {
+      if (isTabGroupingActionMessage(message)) {
+        return handleTabGroupingAction(message);
+      }
+
       return undefined;
     }
 
@@ -83,6 +101,34 @@ export default defineBackground(() => {
     return handleTabSwitcherActivation(message);
   });
 });
+
+function queueTabGroupingOperation<T>(operation: () => Promise<T>): Promise<T> {
+  const queuedOperation = tabGroupingOperationQueue.then(operation, operation);
+
+  tabGroupingOperationQueue = queuedOperation.then(
+    () => undefined,
+    () => undefined,
+  );
+
+  return queuedOperation;
+}
+
+function handleTabGroupingAction(message: TabGroupingActionMessage): Promise<unknown> {
+  switch (message.action) {
+    case 'collapseAllTabGroups':
+      return queueTabGroupingOperation(() => collapseAllTabGroups());
+    case 'expandAllTabGroups':
+      return queueTabGroupingOperation(() => expandAllTabGroups());
+    case 'getLastGroupingOperation':
+      return getLastGroupingOperation();
+    case 'groupCurrentWindowTabs':
+      return queueTabGroupingOperation(() => groupCurrentWindowTabs());
+    case 'undoLastGroupingOperation':
+      return queueTabGroupingOperation(() => undoLastGroupingOperation());
+    case 'ungroupAllTabs':
+      return queueTabGroupingOperation(() => ungroupAllTabs());
+  }
+}
 
 async function openTabSwitcher(): Promise<void> {
   const [sourceTab] = await browser.tabs.query({
@@ -234,6 +280,16 @@ function isTabSwitcherMessage(message: unknown): message is TabSwitcherMessage {
     isRecord(message) &&
     (message.type === TAB_SWITCHER_SEARCH_MESSAGE ||
       message.type === TAB_SWITCHER_ACTIVATE_MESSAGE)
+  );
+}
+
+function isTabGroupingActionMessage(
+  message: unknown,
+): message is TabGroupingActionMessage {
+  return (
+    isRecord(message) &&
+    message.type === TAB_GROUPING_ACTION_MESSAGE &&
+    isTabGroupingActionName(message.action)
   );
 }
 
