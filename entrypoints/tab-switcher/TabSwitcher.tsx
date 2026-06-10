@@ -12,9 +12,10 @@ import {
 import './TabSwitcher.css';
 
 type InputMode = 'keyboard' | 'pointer';
+const OVERLAY_CLOSE_MESSAGE = 'tabcat:switcher-overlay:close';
 
 function TabSwitcher() {
-  const [context] = useState(parseContext);
+  const [{ closeToken, context, isEmbedded }] = useState(parseRuntimeContext);
   const [error, setError] = useState<string | null>(null);
   const [isActivating, setIsActivating] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -30,9 +31,40 @@ function TabSwitcher() {
   }, []);
 
   useEffect(() => {
+    document.body.dataset.tabcatSwitcherMode = isEmbedded ? 'embedded' : 'popup';
+
+    return () => {
+      delete document.body.dataset.tabcatSwitcherMode;
+    };
+  }, [isEmbedded]);
+
+  useEffect(() => {
+    const handleWindowKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      void closePaletteWindow({
+        closeToken,
+        isEmbedded,
+        sourceTabId: context.sourceTabId,
+        windowId: paletteWindowId,
+      });
+    };
+
+    window.addEventListener('keydown', handleWindowKeyDown, { capture: true });
+
+    return () => {
+      window.removeEventListener('keydown', handleWindowKeyDown, {
+        capture: true,
+      });
+    };
+  }, [closeToken, context.sourceTabId, isEmbedded, paletteWindowId]);
+
+  useEffect(() => {
     let isMounted = true;
 
-    void loadItems(context)
+    void loadItems(context, isEmbedded)
       .then(({ items: loadedItems, windowId }) => {
         if (!isMounted) return;
         setItems(loadedItems);
@@ -50,7 +82,7 @@ function TabSwitcher() {
     return () => {
       isMounted = false;
     };
-  }, [context]);
+  }, [context, isEmbedded]);
 
   const results = useMemo(
     () =>
@@ -87,7 +119,12 @@ function TabSwitcher() {
 
     try {
       await activateTabSearchItem(item);
-      await closePaletteWindow(paletteWindowId);
+      await closePaletteWindow({
+        closeToken,
+        isEmbedded,
+        sourceTabId: context.sourceTabId,
+        windowId: paletteWindowId,
+      });
     } catch (caughtError) {
       setError(getErrorMessage(caughtError));
       setIsActivating(false);
@@ -123,12 +160,14 @@ function TabSwitcher() {
 
     if (event.key === 'Escape') {
       event.preventDefault();
-      void closePaletteWindow(paletteWindowId);
     }
   };
 
   return (
-    <main className="switcher-shell">
+    <main
+      className="switcher-shell"
+      data-mode={isEmbedded ? 'embedded' : 'popup'}
+    >
       <section className="search-surface" data-input-mode={inputMode}>
         <div className="search-bar">
           <div className="search-mark" aria-hidden="true">
@@ -253,10 +292,17 @@ function EmptyState({
   return <div className={`empty-state empty-state-${tone}`}>{label}</div>;
 }
 
-async function loadItems(context: TabSearchContext): Promise<{
+async function loadItems(
+  context: TabSearchContext,
+  isEmbedded: boolean,
+): Promise<{
   items: TabSearchItem[];
   windowId?: number;
 }> {
+  if (isEmbedded) {
+    return { items: await loadTabSearchItems(context) };
+  }
+
   const currentWindow = await browser.windows.getCurrent();
   const items = await loadTabSearchItems({
     ...context,
@@ -266,7 +312,38 @@ async function loadItems(context: TabSearchContext): Promise<{
   return { items, windowId: currentWindow.id };
 }
 
-async function closePaletteWindow(windowId?: number): Promise<void> {
+async function closePaletteWindow({
+  closeToken,
+  isEmbedded,
+  sourceTabId,
+  windowId,
+}: {
+  closeToken?: string;
+  isEmbedded: boolean;
+  sourceTabId?: number;
+  windowId?: number;
+}): Promise<void> {
+  if (isEmbedded) {
+    const closeMessage = {
+      source: 'tabcat:switcher',
+      sourceTabId,
+      token: closeToken,
+      type: OVERLAY_CLOSE_MESSAGE,
+    };
+
+    window.parent.postMessage(closeMessage, '*');
+
+    if (sourceTabId != null && closeToken) {
+      try {
+        await browser.runtime.sendMessage(closeMessage);
+      } catch {
+        // The parent postMessage path still closes the overlay on normal pages.
+      }
+    }
+
+    return;
+  }
+
   if (windowId != null) {
     await browser.windows.remove(windowId);
     return;
@@ -275,13 +352,21 @@ async function closePaletteWindow(windowId?: number): Promise<void> {
   window.close();
 }
 
-function parseContext(): TabSearchContext {
+function parseRuntimeContext(): {
+  closeToken?: string;
+  context: TabSearchContext;
+  isEmbedded: boolean;
+} {
   const params = new URLSearchParams(window.location.search);
 
   return {
-    sourceGroupId: parseNumberParam(params.get('sourceGroupId')),
-    sourceTabId: parseNumberParam(params.get('sourceTabId')),
-    sourceWindowId: parseNumberParam(params.get('sourceWindowId')),
+    closeToken: params.get('closeToken') || undefined,
+    context: {
+      sourceGroupId: parseNumberParam(params.get('sourceGroupId')),
+      sourceTabId: parseNumberParam(params.get('sourceTabId')),
+      sourceWindowId: parseNumberParam(params.get('sourceWindowId')),
+    },
+    isEmbedded: params.get('embedded') === '1',
   };
 }
 
