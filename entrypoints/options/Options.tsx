@@ -263,6 +263,17 @@ function Options() {
             <div className="toggle-stack">
               <label className="toggle-field">
                 <input
+                  checked={settings.autoGroupNewTabs}
+                  type="checkbox"
+                  onChange={(event) => {
+                    updateSetting('autoGroupNewTabs', event.target.checked);
+                  }}
+                />
+                <span>Auto group new tabs</span>
+              </label>
+
+              <label className="toggle-field">
+                <input
                   checked={settings.includePinnedTabs}
                   type="checkbox"
                   onChange={(event) => {

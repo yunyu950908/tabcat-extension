@@ -5,6 +5,7 @@ import {
   type DomainRule,
   type GroupingMode,
   type GroupingScope,
+  type TabCatSettings,
 } from './settings';
 
 const DEFAULT_MIN_GROUP_SIZE = 2;
@@ -59,6 +60,7 @@ export type SkipReason =
   | 'singleton';
 
 export interface GroupingOptions {
+  autoGroupNewTabs?: boolean;
   collapseNewGroups?: boolean;
   domainRules?: DomainRule[];
   groupingMode?: GroupingMode;
@@ -128,6 +130,28 @@ export interface UndoGroupingResult {
   skippedTabCount: number;
   undoneTabCount: number;
 }
+
+export type AutoGroupSkipReason =
+  | Exclude<SkipReason, 'singleton'>
+  | 'disabled'
+  | 'missing-window'
+  | 'multiple-matching-groups'
+  | 'no-matching-group';
+
+export type AutoGroupPlan =
+  | {
+      action: 'group';
+      key: string;
+      tabGroupId: number;
+      tabId: number;
+      title: string;
+    }
+  | {
+      action: 'skip';
+      key?: string;
+      reason: AutoGroupSkipReason;
+      tabId?: number;
+    };
 
 export function buildHostnameGroupingPlan(
   tabs: TabLike[],
@@ -219,13 +243,7 @@ export async function groupCurrentWindowTabs(
 ): Promise<ApplyGroupingResult> {
   const settings = await getSettings();
   const resolvedOptions: GroupingOptions = {
-    collapseNewGroups: settings.collapseNewGroups,
-    domainRules: settings.domainRules,
-    groupingMode: settings.groupingMode,
-    ignoredDomains: settings.ignoredDomains,
-    includePinnedTabs: settings.includePinnedTabs,
-    minGroupSize: settings.minGroupSize,
-    scope: settings.scope,
+    ...getGroupingOptionsFromSettings(settings),
     ...options,
   };
   const tabs = await browser.tabs.query(
@@ -255,6 +273,118 @@ export async function groupCurrentWindowTabs(
   await saveLastGroupingOperation(appliedGroups);
 
   return { appliedGroups, plan };
+}
+
+export function buildAutoGroupPlan(
+  tab: TabLike,
+  tabsInWindow: TabLike[],
+  options: GroupingOptions = {},
+): AutoGroupPlan {
+  const candidate = getEligibleTab(tab, options);
+
+  if (!candidate.ok) {
+    return {
+      action: 'skip',
+      key: candidate.skipped.key,
+      reason: toAutoGroupSkipReason(candidate.skipped.reason),
+      tabId: candidate.skipped.id,
+    };
+  }
+
+  if (tab.windowId == null) {
+    return {
+      action: 'skip',
+      key: candidate.key,
+      reason: 'missing-window',
+      tabId: candidate.tab.id,
+    };
+  }
+
+  const matchingGroupIds = new Set<number>();
+
+  for (const existingTab of tabsInWindow) {
+    if (
+      existingTab.id === candidate.tab.id ||
+      existingTab.groupId == null ||
+      existingTab.groupId === NO_GROUP_ID ||
+      (existingTab.windowId != null && existingTab.windowId !== tab.windowId)
+    ) {
+      continue;
+    }
+
+    const existingCandidate = getEligibleTab(existingTab, options, {
+      allowGrouped: true,
+    });
+
+    if (!existingCandidate.ok || existingCandidate.key !== candidate.key) {
+      continue;
+    }
+
+    matchingGroupIds.add(existingTab.groupId);
+  }
+
+  if (matchingGroupIds.size === 0) {
+    return {
+      action: 'skip',
+      key: candidate.key,
+      reason: 'no-matching-group',
+      tabId: candidate.tab.id,
+    };
+  }
+
+  if (matchingGroupIds.size > 1) {
+    return {
+      action: 'skip',
+      key: candidate.key,
+      reason: 'multiple-matching-groups',
+      tabId: candidate.tab.id,
+    };
+  }
+
+  const [tabGroupId] = matchingGroupIds;
+
+  return {
+    action: 'group',
+    key: candidate.key,
+    tabGroupId,
+    tabId: candidate.tab.id,
+    title: candidate.title,
+  };
+}
+
+export async function autoGroupTabIntoExistingGroup(
+  tab: TabLike,
+): Promise<AutoGroupPlan> {
+  const settings = await getSettings();
+
+  if (!settings.autoGroupNewTabs) {
+    return {
+      action: 'skip',
+      reason: 'disabled',
+      tabId: tab.id,
+    };
+  }
+
+  if (tab.windowId == null) {
+    return {
+      action: 'skip',
+      reason: 'missing-window',
+      tabId: tab.id,
+    };
+  }
+
+  const options = getGroupingOptionsFromSettings(settings);
+  const tabsInWindow = await browser.tabs.query({ windowId: tab.windowId });
+  const plan = buildAutoGroupPlan(tab, tabsInWindow, options);
+
+  if (plan.action === 'group') {
+    await (browser.tabs.group({
+      groupId: plan.tabGroupId,
+      tabIds: [plan.tabId],
+    }) as Promise<number>);
+  }
+
+  return plan;
 }
 
 export async function getLastGroupingOperation(): Promise<LastGroupingOperation | null> {
@@ -420,9 +550,33 @@ function isAppliedGroup(value: unknown): value is AppliedGroup {
   );
 }
 
+function getGroupingOptionsFromSettings(
+  settings: TabCatSettings,
+): GroupingOptions {
+  return {
+    autoGroupNewTabs: settings.autoGroupNewTabs,
+    collapseNewGroups: settings.collapseNewGroups,
+    domainRules: settings.domainRules,
+    groupingMode: settings.groupingMode,
+    ignoredDomains: settings.ignoredDomains,
+    includePinnedTabs: settings.includePinnedTabs,
+    minGroupSize: settings.minGroupSize,
+    scope: settings.scope,
+  };
+}
+
+function toAutoGroupSkipReason(reason: SkipReason): AutoGroupSkipReason {
+  if (reason === 'singleton') {
+    return 'no-matching-group';
+  }
+
+  return reason;
+}
+
 function getEligibleTab(
   tab: TabLike,
   options: GroupingOptions,
+  eligibilityOptions: { allowGrouped?: boolean } = {},
 ):
   | { key: string; ok: true; tab: PlannedTab; title: string }
   | { ok: false; skipped: SkippedTab } {
@@ -449,7 +603,11 @@ function getEligibleTab(
     };
   }
 
-  if (tab.groupId !== undefined && tab.groupId !== NO_GROUP_ID) {
+  if (
+    !eligibilityOptions.allowGrouped &&
+    tab.groupId !== undefined &&
+    tab.groupId !== NO_GROUP_ID
+  ) {
     return {
       ok: false,
       skipped: {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildAutoGroupPlan,
   buildGroupingPlan,
   buildHostnameGroupingPlan,
   getHostnameGroupingKey,
@@ -247,6 +248,154 @@ describe('hostname grouping plan', () => {
   });
 });
 
+describe('auto group plan', () => {
+  it('joins exactly one existing matching group', () => {
+    expect(
+      buildAutoGroupPlan(
+        tab(3, 'https://github.com/new'),
+        [
+          tab(1, 'https://github.com/a', { groupId: 10 }),
+          tab(2, 'https://example.com/a', { groupId: 11 }),
+          tab(3, 'https://github.com/new'),
+        ],
+      ),
+    ).toMatchObject({
+      action: 'group',
+      key: 'github.com',
+      tabGroupId: 10,
+      tabId: 3,
+    });
+  });
+
+  it('skips when no existing group matches', () => {
+    expect(
+      buildAutoGroupPlan(
+        tab(3, 'https://github.com/new'),
+        [
+          tab(1, 'https://example.com/a', { groupId: 10 }),
+          tab(2, 'https://github.com/a'),
+        ],
+      ),
+    ).toMatchObject({
+      action: 'skip',
+      key: 'github.com',
+      reason: 'no-matching-group',
+      tabId: 3,
+    });
+  });
+
+  it('skips when multiple existing groups match', () => {
+    expect(
+      buildAutoGroupPlan(
+        tab(3, 'https://github.com/new'),
+        [
+          tab(1, 'https://github.com/a', { groupId: 10 }),
+          tab(2, 'https://github.com/b', { groupId: 11 }),
+        ],
+      ),
+    ).toMatchObject({
+      action: 'skip',
+      key: 'github.com',
+      reason: 'multiple-matching-groups',
+      tabId: 3,
+    });
+  });
+
+  it('skips already grouped tabs', () => {
+    expect(
+      buildAutoGroupPlan(
+        tab(3, 'https://github.com/new', { groupId: 10 }),
+        [tab(1, 'https://github.com/a', { groupId: 10 })],
+      ),
+    ).toMatchObject({
+      action: 'skip',
+      reason: 'already-grouped',
+      tabId: 3,
+    });
+  });
+
+  it('skips ignored domains', () => {
+    expect(
+      buildAutoGroupPlan(
+        tab(3, 'https://github.com/new'),
+        [tab(1, 'https://github.com/a', { groupId: 10 })],
+        { ignoredDomains: ['github.com'] },
+      ),
+    ).toMatchObject({
+      action: 'skip',
+      key: 'github.com',
+      reason: 'ignored-domain',
+      tabId: 3,
+    });
+  });
+
+  it('respects pinned tab settings', () => {
+    expect(
+      buildAutoGroupPlan(
+        tab(3, 'https://github.com/new', { pinned: true }),
+        [tab(1, 'https://github.com/a', { groupId: 10 })],
+      ),
+    ).toMatchObject({
+      action: 'skip',
+      reason: 'pinned',
+      tabId: 3,
+    });
+
+    expect(
+      buildAutoGroupPlan(
+        tab(3, 'https://github.com/new', { pinned: true }),
+        [tab(1, 'https://github.com/a', { groupId: 10 })],
+        { includePinnedTabs: true },
+      ),
+    ).toMatchObject({
+      action: 'group',
+      tabGroupId: 10,
+      tabId: 3,
+    });
+  });
+
+  it('matches sibling subdomains in root-domain grouping mode', () => {
+    expect(
+      buildAutoGroupPlan(
+        tab(3, 'https://mail.google.com/new'),
+        [tab(1, 'https://docs.google.com/a', { groupId: 10 })],
+        { groupingMode: 'rootDomain' },
+      ),
+    ).toMatchObject({
+      action: 'group',
+      key: 'google.com',
+      tabGroupId: 10,
+      tabId: 3,
+    });
+  });
+
+  it('uses merge rules to match existing groups', () => {
+    expect(
+      buildAutoGroupPlan(
+        tab(3, 'https://drive.google.com/new'),
+        [tab(1, 'https://docs.google.com/a', { groupId: 10 })],
+        {
+          domainRules: [
+            {
+              action: 'merge',
+              enabled: true,
+              id: 'rule-1',
+              matchMode: 'rootDomain',
+              pattern: 'google.com',
+              value: 'Google Workspace',
+            },
+          ],
+        },
+      ),
+    ).toMatchObject({
+      action: 'group',
+      key: 'Google Workspace',
+      tabGroupId: 10,
+      tabId: 3,
+    });
+  });
+});
+
 describe('settings helpers', () => {
   it('normalizes ignored domain input', () => {
     expect(
@@ -298,10 +447,29 @@ describe('settings helpers', () => {
         ignoredDomains: ['valid.com', 'not valid.com'],
       }),
     ).toMatchObject({
+      autoGroupNewTabs: false,
       collapseNewGroups: false,
       ignoredDomains: ['valid.com'],
       includePinnedTabs: false,
       minGroupSize: 4,
+    });
+  });
+
+  it('normalizes auto group settings safely', () => {
+    expect(
+      normalizeSettings({
+        autoGroupNewTabs: true,
+      }),
+    ).toMatchObject({
+      autoGroupNewTabs: true,
+    });
+
+    expect(
+      normalizeSettings({
+        autoGroupNewTabs: 'true',
+      }),
+    ).toMatchObject({
+      autoGroupNewTabs: false,
     });
   });
 });
