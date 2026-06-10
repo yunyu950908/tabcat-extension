@@ -8,6 +8,7 @@ import {
   collapseAllTabGroups,
   expandAllTabGroups,
   buildUngroupAllPlan,
+  groupCurrentWindowTabs,
   getHostnameGroupingKey,
   getRootDomainGroupingKey,
   normalizeHostname,
@@ -259,6 +260,88 @@ describe('hostname grouping plan', () => {
       { id: 1, reason: 'ignored-domain' },
       { id: 2, reason: 'ignored-domain' },
     ]);
+  });
+});
+
+describe('manual grouping application', () => {
+  it('adds a matching singleton tab to an existing group instead of creating a duplicate group', async () => {
+    const browserStub = stubBrowserForManualGrouping({
+      initialTabs: [
+        tab(1, 'https://github.com/a', { groupId: 10, index: 0 }),
+        tab(2, 'https://github.com/new', { index: 1 }),
+        tab(3, 'https://example.com/a', { index: 2 }),
+      ],
+      refreshedTabs: [
+        tab(1, 'https://github.com/a', { groupId: 10, index: 0 }),
+        tab(2, 'https://github.com/new', { groupId: 10, index: 1 }),
+        tab(3, 'https://example.com/a', { index: 2 }),
+      ],
+    });
+
+    await expect(groupCurrentWindowTabs()).resolves.toMatchObject({
+      appliedGroups: [
+        {
+          key: 'github.com',
+          tabGroupId: 10,
+          tabIds: [2],
+          title: 'github.com',
+        },
+      ],
+      plan: {
+        summary: {
+          eligibleTabCount: 2,
+          groupCount: 1,
+          groupedTabCount: 1,
+        },
+      },
+    });
+    expect(browserStub.groupTabs).toHaveBeenCalledWith({
+      groupId: 10,
+      tabIds: [2],
+    });
+    expect(browserStub.updateGroup).toHaveBeenCalledWith(10, {
+      collapsed: false,
+      color: 'orange',
+      title: 'github.com',
+    });
+    expect(browserStub.queryTabs).toHaveBeenCalledTimes(2);
+    expect(browserStub.saveSession).toHaveBeenCalledOnce();
+  });
+
+  it('merges duplicate matching groups into the first group without creating another group', async () => {
+    const browserStub = stubBrowserForManualGrouping({
+      initialTabs: [
+        tab(1, 'https://aliyun.com/a', { groupId: 10, index: 0 }),
+        tab(2, 'https://example.com/a', { index: 1 }),
+        tab(3, 'https://aliyun.com/b', { groupId: 11, index: 2 }),
+      ],
+      refreshedTabs: [
+        tab(1, 'https://aliyun.com/a', { groupId: 10, index: 0 }),
+        tab(3, 'https://aliyun.com/b', { groupId: 10, index: 1 }),
+        tab(2, 'https://example.com/a', { index: 2 }),
+      ],
+    });
+
+    await expect(groupCurrentWindowTabs()).resolves.toMatchObject({
+      appliedGroups: [],
+      plan: {
+        summary: {
+          eligibleTabCount: 1,
+          groupCount: 1,
+          groupedTabCount: 0,
+        },
+      },
+    });
+    expect(browserStub.groupTabs).toHaveBeenCalledWith({
+      groupId: 10,
+      tabIds: [3],
+    });
+    expect(browserStub.updateGroup).toHaveBeenCalledWith(10, {
+      collapsed: false,
+      color: 'green',
+      title: 'aliyun.com',
+    });
+    expect(browserStub.clearSession).toHaveBeenCalledOnce();
   });
 });
 
@@ -937,6 +1020,57 @@ function tabGroup(
     title: `Group ${id}`,
     windowId: 1,
     ...overrides,
+  };
+}
+
+function stubBrowserForManualGrouping({
+  initialTabs,
+  refreshedTabs = initialTabs,
+}: {
+  initialTabs: TabLike[];
+  refreshedTabs?: TabLike[];
+}) {
+  let queryCount = 0;
+  const queryTabs = vi.fn(async () => {
+    queryCount += 1;
+    return queryCount === 1 ? initialTabs : refreshedTabs;
+  });
+  const groupTabs = vi.fn(
+    async (options: { groupId?: number; tabIds: number[] }) =>
+      options.groupId ?? 99,
+  );
+  const moveGroup = vi.fn(async (groupId: number) => tabGroup(groupId));
+  const updateGroup = vi.fn(async (groupId: number) => tabGroup(groupId));
+  const saveSession = vi.fn(async () => undefined);
+  const clearSession = vi.fn(async () => undefined);
+
+  vi.stubGlobal('browser', {
+    storage: {
+      session: {
+        remove: clearSession,
+        set: saveSession,
+      },
+      sync: {
+        get: vi.fn(async () => ({})),
+      },
+    },
+    tabGroups: {
+      move: moveGroup,
+      update: updateGroup,
+    },
+    tabs: {
+      group: groupTabs,
+      query: queryTabs,
+    },
+  });
+
+  return {
+    clearSession,
+    groupTabs,
+    moveGroup,
+    queryTabs,
+    saveSession,
+    updateGroup,
   };
 }
 

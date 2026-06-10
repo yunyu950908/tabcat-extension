@@ -1,14 +1,13 @@
 import { useEffect, useState } from 'react';
-import {
-  collapseAllTabGroups,
-  expandAllTabGroups,
-  getLastGroupingOperation,
-  groupCurrentWindowTabs,
-  type GroupingSummary,
-  type TabGroupVisibilityResult,
-  ungroupAllTabs,
-  undoLastGroupingOperation,
+import type {
+  GroupingSummary,
+  TabGroupVisibilityResult,
 } from '@/utils/tabGrouping';
+import {
+  TAB_GROUPING_ACTION_MESSAGE,
+  type TabGroupingActionName,
+  type TabGroupingActionResultMap,
+} from '@/utils/tabGroupingMessages';
 import './App.css';
 
 type SummaryState =
@@ -32,7 +31,7 @@ function App() {
   const [undoAvailable, setUndoAvailable] = useState(false);
 
   useEffect(() => {
-    void getLastGroupingOperation()
+    void runTabGroupingAction('getLastGroupingOperation')
       .then((operation) => {
         setUndoAvailable(Boolean(operation));
       })
@@ -46,7 +45,7 @@ function App() {
     setIsTidying(true);
 
     try {
-      const result = await groupCurrentWindowTabs();
+      const result = await runTabGroupingAction('groupCurrentWindowTabs');
       setSummaryState({ kind: 'tidy', summary: result.plan.summary });
       setUndoAvailable(result.appliedGroups.length > 0);
     } catch (caughtError) {
@@ -61,7 +60,7 @@ function App() {
     setIsUndoing(true);
 
     try {
-      const result = await undoLastGroupingOperation();
+      const result = await runTabGroupingAction('undoLastGroupingOperation');
       setSummaryState({
         kind: 'undo',
         summary: {
@@ -84,7 +83,7 @@ function App() {
     setIsCollapsingGroups(true);
 
     try {
-      const result = await collapseAllTabGroups();
+      const result = await runTabGroupingAction('collapseAllTabGroups');
       setSummaryState({ kind: 'collapseAll', summary: result });
     } catch (caughtError) {
       setError(getErrorMessage(caughtError));
@@ -98,7 +97,7 @@ function App() {
     setIsExpandingGroups(true);
 
     try {
-      const result = await expandAllTabGroups();
+      const result = await runTabGroupingAction('expandAllTabGroups');
       setSummaryState({ kind: 'expandAll', summary: result });
     } catch (caughtError) {
       setError(getErrorMessage(caughtError));
@@ -112,7 +111,7 @@ function App() {
     setIsUngrouping(true);
 
     try {
-      const result = await ungroupAllTabs();
+      const result = await runTabGroupingAction('ungroupAllTabs');
       setSummaryState({
         kind: 'ungroup',
         summary: {
@@ -262,6 +261,15 @@ function getSummaryItems(
   }
 
   return [];
+}
+
+async function runTabGroupingAction<TAction extends TabGroupingActionName>(
+  action: TAction,
+): Promise<TabGroupingActionResultMap[TAction]> {
+  return browser.runtime.sendMessage({
+    action,
+    type: TAB_GROUPING_ACTION_MESSAGE,
+  }) as Promise<TabGroupingActionResultMap[TAction]>;
 }
 
 function getErrorMessage(error: unknown): string {

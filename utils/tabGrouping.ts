@@ -24,8 +24,35 @@ type TabGroupColor =
 type NonEmptyArray<T> = [T, ...T[]];
 
 interface CandidateGroup {
+  key: string;
   tabs: PlannedTab[];
   title: string;
+  windowId?: number;
+}
+
+interface ExistingGroupBlock {
+  firstOrder: number;
+  groupId: number;
+  tabIds: number[];
+}
+
+interface ExistingGroupState {
+  color: TabGroupColor;
+  groups: Map<number, ExistingGroupBlock>;
+  key: string;
+  title: string;
+  windowId?: number;
+}
+
+interface ApplyGroupingOperation extends PlannedGroup {
+  existingGroupIds: number[];
+  mergeTabIds: number[];
+  targetGroupId?: number;
+  windowId?: number;
+}
+
+interface GroupingApplicationPlan extends GroupingPlan {
+  operations: ApplyGroupingOperation[];
 }
 
 interface TabGroupLike {
@@ -227,6 +254,7 @@ export function buildGroupingPlan(
     }
 
     const candidateGroup = candidates.get(candidate.key) ?? {
+      key: candidate.key,
       tabs: [],
       title: candidate.title,
     };
@@ -282,6 +310,160 @@ export function buildGroupingPlan(
   };
 }
 
+function buildGroupingApplicationPlan(
+  tabs: TabLike[],
+  options: GroupingOptions = {},
+): GroupingApplicationPlan {
+  const minGroupSize = Math.max(2, options.minGroupSize ?? DEFAULT_MIN_GROUP_SIZE);
+  const skipped: SkippedTab[] = [];
+  const candidates = new Map<string, CandidateGroup>();
+  const existingGroups = new Map<string, ExistingGroupState>();
+  let eligibleTabCount = 0;
+
+  tabs.forEach((tab, originalIndex) => {
+    if (isGroupedTab(tab)) {
+      skipped.push({
+        id: tab.id,
+        reason: 'already-grouped',
+        title: tab.title,
+        url: tab.url,
+      });
+
+      const candidate = getEligibleTab(tab, options, { allowGrouped: true });
+
+      if (candidate.ok && tab.groupId != null && tab.groupId !== NO_GROUP_ID) {
+        const operationKey = getOperationKey(candidate.key, tab.windowId);
+        const state = existingGroups.get(operationKey) ?? {
+          color: colorForGroupingKey(candidate.key),
+          groups: new Map<number, ExistingGroupBlock>(),
+          key: candidate.key,
+          title: candidate.title,
+          ...(tab.windowId != null && { windowId: tab.windowId }),
+        };
+        const block = state.groups.get(tab.groupId) ?? {
+          firstOrder: getTabRuntimeOrder(tab, originalIndex),
+          groupId: tab.groupId,
+          tabIds: [],
+        };
+
+        block.firstOrder = Math.min(
+          block.firstOrder,
+          getTabRuntimeOrder(tab, originalIndex),
+        );
+
+        if (tab.id != null) {
+          block.tabIds.push(tab.id);
+        }
+
+        state.groups.set(tab.groupId, block);
+        existingGroups.set(operationKey, state);
+      }
+
+      return;
+    }
+
+    const candidate = getEligibleTab(tab, options);
+
+    if (!candidate.ok) {
+      skipped.push(candidate.skipped);
+      return;
+    }
+
+    eligibleTabCount += 1;
+
+    const operationKey = getOperationKey(candidate.key, tab.windowId);
+    const candidateGroup = candidates.get(operationKey) ?? {
+      key: candidate.key,
+      tabs: [],
+      title: candidate.title,
+      ...(tab.windowId != null && { windowId: tab.windowId }),
+    };
+    candidateGroup.tabs.push(candidate.tab);
+    candidates.set(operationKey, candidateGroup);
+  });
+
+  const operations: ApplyGroupingOperation[] = [];
+  const operationKeys = [...new Set([...candidates.keys(), ...existingGroups.keys()])]
+    .sort((a, b) => a.localeCompare(b));
+
+  for (const operationKey of operationKeys) {
+    const candidateGroup = candidates.get(operationKey);
+    const existingState = existingGroups.get(operationKey);
+    const candidateTabs = candidateGroup?.tabs ?? [];
+    const existingBlocks = existingState
+      ? [...existingState.groups.values()].sort(
+          (a, b) => a.firstOrder - b.firstOrder || a.groupId - b.groupId,
+        )
+      : [];
+    const targetGroup = existingBlocks[0];
+    const mergeTabIds = existingBlocks
+      .slice(1)
+      .flatMap((block) => block.tabIds);
+
+    if (existingState && targetGroup) {
+      if (candidateTabs.length === 0 && mergeTabIds.length === 0) {
+        continue;
+      }
+
+      operations.push({
+        color: existingState.color,
+        existingGroupIds: existingBlocks.map((block) => block.groupId),
+        key: existingState.key,
+        mergeTabIds,
+        tabIds: candidateTabs.map((tab) => tab.id),
+        tabs: candidateTabs,
+        targetGroupId: targetGroup.groupId,
+        title: existingState.title,
+        ...(existingState.windowId != null && { windowId: existingState.windowId }),
+      });
+      continue;
+    }
+
+    if (candidateTabs.length < minGroupSize) {
+      for (const tab of candidateTabs) {
+        skipped.push({
+          id: tab.id,
+          key: candidateGroup?.key ?? getOperationDomainKey(operationKey),
+          reason: 'singleton',
+          title: tab.title,
+          url: tab.url,
+        });
+      }
+      continue;
+    }
+
+    const key = candidateGroup?.key ?? getOperationDomainKey(operationKey);
+
+    operations.push({
+      color: colorForGroupingKey(key),
+      existingGroupIds: [],
+      key,
+      mergeTabIds: [],
+      tabIds: candidateTabs.map((tab) => tab.id),
+      tabs: candidateTabs,
+      title: candidateGroup?.title ?? key,
+      ...(candidateGroup?.windowId != null && { windowId: candidateGroup.windowId }),
+    });
+  }
+
+  const groupedTabCount = operations.reduce(
+    (sum, operation) => sum + operation.tabIds.length,
+    0,
+  );
+
+  return {
+    groups: operations,
+    operations,
+    skipped,
+    summary: {
+      eligibleTabCount,
+      groupCount: operations.length,
+      groupedTabCount,
+      skippedTabCount: skipped.length,
+    },
+  };
+}
+
 export async function groupCurrentWindowTabsByHostname(
   options: GroupingOptions = {},
 ): Promise<ApplyGroupingResult> {
@@ -299,30 +481,55 @@ export async function groupCurrentWindowTabs(
   const tabs = await browser.tabs.query(
     resolvedOptions.scope === 'allWindows' ? {} : { currentWindow: true },
   );
-  const plan = buildGroupingPlan(tabs, resolvedOptions);
+  const plan = buildGroupingApplicationPlan(tabs, resolvedOptions);
   const appliedGroups: AppliedGroup[] = [];
+  let appliedOperationCount = 0;
 
-  for (const group of plan.groups) {
-    const tabIds = toNonEmptyArray(group.tabIds);
-    const tabGroupId = await (browser.tabs.group({ tabIds }) as Promise<number>);
+  for (const operation of plan.operations) {
+    const tabIdsToMove = [...operation.mergeTabIds, ...operation.tabIds];
+    let tabGroupId = operation.targetGroupId;
+
+    if (tabGroupId != null) {
+      if (tabIdsToMove.length > 0) {
+        await (browser.tabs.group({
+          groupId: tabGroupId,
+          tabIds: toNonEmptyArray(tabIdsToMove),
+        }) as Promise<number>);
+      }
+    } else {
+      tabGroupId = await (browser.tabs.group({
+        tabIds: toNonEmptyArray(operation.tabIds),
+      }) as Promise<number>);
+    }
+
     await browser.tabGroups.update(tabGroupId, {
       collapsed: resolvedOptions.collapseNewGroups,
-      color: group.color,
-      title: group.title,
+      color: operation.color,
+      title: operation.title,
     });
+    appliedOperationCount += 1;
 
-    appliedGroups.push({
-      color: group.color,
-      key: group.key,
-      tabGroupId,
-      tabIds: group.tabIds,
-      title: group.title,
-    });
+    if (operation.tabIds.length > 0) {
+      appliedGroups.push({
+        color: operation.color,
+        key: operation.key,
+        tabGroupId,
+        tabIds: operation.tabIds,
+        title: operation.title,
+      });
+    }
   }
 
   const arrangement =
-    resolvedOptions.arrangeTabsAfterGrouping && appliedGroups.length > 0
-    ? await arrangeTabsAfterGrouping(tabs, appliedGroups)
+    resolvedOptions.arrangeTabsAfterGrouping && appliedOperationCount > 0
+    ? await arrangeTabsAfterGrouping(
+        await browser.tabs.query(
+          resolvedOptions.scope === 'allWindows'
+            ? {}
+            : { currentWindow: true },
+        ),
+        appliedGroups,
+      )
     : null;
 
   await saveLastGroupingOperation(appliedGroups);
@@ -856,8 +1063,24 @@ function getGroupingOptionsFromSettings(
   };
 }
 
+function getOperationKey(key: string, windowId?: number): string {
+  return `${windowId ?? 'unknown'}\u0000${key}`;
+}
+
+function getOperationDomainKey(operationKey: string): string {
+  return operationKey.split('\u0000')[1] ?? operationKey;
+}
+
+function isGroupedTab(tab: TabLike): boolean {
+  return tab.groupId != null && tab.groupId !== NO_GROUP_ID;
+}
+
 function getTabOrder(tab: TabLike & { originalIndex: number }): number {
   return tab.index ?? tab.originalIndex;
+}
+
+function getTabRuntimeOrder(tab: TabLike, originalIndex: number): number {
+  return tab.index ?? originalIndex;
 }
 
 function getArrangedGroupId(
