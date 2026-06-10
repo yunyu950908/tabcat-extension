@@ -3,17 +3,19 @@ import {
   getLastGroupingOperation,
   groupCurrentWindowTabs,
   type GroupingSummary,
+  ungroupAllTabs,
   undoLastGroupingOperation,
 } from '@/utils/tabGrouping';
 import './App.css';
 
 type SummaryState = {
-  kind: 'tidy' | 'undo';
+  kind: 'tidy' | 'undo' | 'ungroup';
   summary: GroupingSummary;
 };
 
 function App() {
   const [error, setError] = useState<string | null>(null);
+  const [isUngrouping, setIsUngrouping] = useState(false);
   const [isTidying, setIsTidying] = useState(false);
   const [isUndoing, setIsUndoing] = useState(false);
   const [summaryState, setSummaryState] = useState<SummaryState | null>(null);
@@ -67,6 +69,31 @@ function App() {
     }
   };
 
+  const handleUngroupAll = async () => {
+    setError(null);
+    setIsUngrouping(true);
+
+    try {
+      const result = await ungroupAllTabs();
+      setSummaryState({
+        kind: 'ungroup',
+        summary: {
+          eligibleTabCount: result.ungroupedTabCount,
+          groupCount: result.groupCount,
+          groupedTabCount: 0,
+          skippedTabCount: result.skippedTabCount,
+        },
+      });
+      setUndoAvailable(false);
+    } catch (caughtError) {
+      setError(getErrorMessage(caughtError));
+    } finally {
+      setIsUngrouping(false);
+    }
+  };
+
+  const isBusy = isTidying || isUndoing || isUngrouping;
+
   return (
     <main className="popup-shell">
       <section className="heading">
@@ -77,7 +104,7 @@ function App() {
       <div className="actions">
         <button
           className="primary-action"
-          disabled={isTidying || isUndoing}
+          disabled={isBusy}
           onClick={handleTidyTabs}
           type="button"
         >
@@ -85,11 +112,19 @@ function App() {
         </button>
         <button
           className="secondary-action"
-          disabled={!undoAvailable || isTidying || isUndoing}
+          disabled={!undoAvailable || isBusy}
           onClick={handleUndo}
           type="button"
         >
           {isUndoing ? 'Undoing...' : 'Undo'}
+        </button>
+        <button
+          className="secondary-action"
+          disabled={isBusy}
+          onClick={handleUngroupAll}
+          type="button"
+        >
+          {isUngrouping ? 'Ungrouping...' : 'Ungroup all'}
         </button>
       </div>
 
@@ -112,7 +147,12 @@ function SummaryPanel({ summaryState }: { summaryState: SummaryState }) {
   const { kind, summary } = summaryState;
   const middleValue =
     kind === 'tidy' ? summary.groupedTabCount : summary.eligibleTabCount;
-  const middleLabel = kind === 'tidy' ? 'tabs grouped' : 'tabs undone';
+  const middleLabel =
+    kind === 'tidy'
+      ? 'tabs grouped'
+      : kind === 'undo'
+        ? 'tabs undone'
+        : 'tabs ungrouped';
 
   return (
     <section className="summary-panel" aria-live="polite">

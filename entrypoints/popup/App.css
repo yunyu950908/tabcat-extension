@@ -25,7 +25,7 @@
 
 .actions {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   margin-bottom: 14px;
 }
@@ -38,6 +38,7 @@
 }
 
 .primary-action {
+  grid-column: 1 / -1;
   border: 0;
   background: #0f766e;
   color: #ffffff;
@@ -48,7 +49,7 @@
 }
 
 .secondary-action {
-  min-width: 78px;
+  min-width: 0;
   border: 1px solid #cbd5e1;
   background: #ffffff;
   color: #334155;
