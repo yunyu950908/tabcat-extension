@@ -3,6 +3,7 @@ import {
   activateTabSearchItem,
   buildTabSearchItems,
   filterTabSearchItems,
+  getTabSearchWindowLabels,
   type TabSearchItem,
 } from './tabSearch';
 
@@ -166,6 +167,23 @@ describe('tab search filtering', () => {
 
     expect(filterTabSearchItems(items, 'gpr')).toMatchObject([{ id: 1 }]);
     expect(filterTabSearchItems(items, '', { limit: 2 })).toHaveLength(2);
+  });
+
+  it('labels the source window first for display', () => {
+    const labels = getTabSearchWindowLabels(
+      [
+        item(1, { windowId: 1 }),
+        item(2, { windowId: 3 }),
+        item(3, { windowId: 2 }),
+      ],
+      2,
+    );
+
+    expect([...labels.entries()]).toEqual([
+      [2, 'Current window'],
+      [1, 'Window 2'],
+      [3, 'Window 3'],
+    ]);
   });
 });
 

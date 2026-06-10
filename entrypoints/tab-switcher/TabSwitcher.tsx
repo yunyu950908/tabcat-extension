@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   activateTabSearchItem,
   filterTabSearchItems,
+  getTabSearchWindowLabels,
   loadTabSearchItems,
   type TabSearchContext,
   type TabSearchItem,
@@ -64,7 +65,7 @@ function TabSwitcher() {
     ],
   );
   const windowLabels = useMemo(
-    () => getWindowLabels(items, context.sourceWindowId),
+    () => getTabSearchWindowLabels(items, context.sourceWindowId),
     [context.sourceWindowId, items],
   );
 
@@ -285,26 +286,6 @@ function parseNumberParam(value: string | null): number | undefined {
   const numberValue = Number(value);
 
   return Number.isFinite(numberValue) ? numberValue : undefined;
-}
-
-function getWindowLabels(
-  items: TabSearchItem[],
-  sourceWindowId?: number,
-): Map<number, string> {
-  const windowIds = [...new Set(items.map((item) => item.windowId))].sort(
-    (a, b) => {
-      if (a === sourceWindowId) return -1;
-      if (b === sourceWindowId) return 1;
-      return a - b;
-    },
-  );
-
-  return new Map(
-    windowIds.map((windowId, index) => [
-      windowId,
-      windowId === sourceWindowId ? 'Current window' : `Window ${index + 1}`,
-    ]),
-  );
 }
 
 function getFallbackIcon(item: TabSearchItem): string {

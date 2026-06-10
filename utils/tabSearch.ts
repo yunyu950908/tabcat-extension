@@ -139,9 +139,31 @@ export function filterTabSearchItems(
   return results.sort(compareTabSearchResults).slice(0, limit);
 }
 
-export async function activateTabSearchItem(item: TabSearchItem): Promise<void> {
+export async function activateTabSearchItem(
+  item: Pick<TabSearchItem, 'id' | 'windowId'>,
+): Promise<void> {
   await browser.tabs.update(item.id, { active: true });
   await browser.windows.update(item.windowId, { focused: true });
+}
+
+export function getTabSearchWindowLabels(
+  items: TabSearchItem[],
+  sourceWindowId?: number,
+): Map<number, string> {
+  const windowIds = [...new Set(items.map((item) => item.windowId))].sort(
+    (a, b) => {
+      if (a === sourceWindowId) return -1;
+      if (b === sourceWindowId) return 1;
+      return a - b;
+    },
+  );
+
+  return new Map(
+    windowIds.map((windowId, index) => [
+      windowId,
+      windowId === sourceWindowId ? 'Current window' : `Window ${index + 1}`,
+    ]),
+  );
 }
 
 function scoreTabSearchItem(
