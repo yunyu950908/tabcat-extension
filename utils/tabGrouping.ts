@@ -28,6 +28,12 @@ interface CandidateGroup {
   title: string;
 }
 
+interface TabGroupLike {
+  collapsed: boolean;
+  id: number;
+  windowId: number;
+}
+
 const GROUP_COLORS: TabGroupColor[] = [
   'blue',
   'cyan',
@@ -145,6 +151,17 @@ export interface UngroupAllResult {
   groupCount: number;
   skippedTabCount: number;
   ungroupedTabCount: number;
+}
+
+export type TabGroupVisibilityAction = 'collapseOthers' | 'expandAll';
+
+export interface TabGroupVisibilityResult {
+  action: TabGroupVisibilityAction;
+  activeGroupId: number | null;
+  collapsedGroupCount: number;
+  expandedGroupCount: number;
+  groupCount: number;
+  unchangedGroupCount: number;
 }
 
 export interface ArrangeTabsWindowPlan {
@@ -469,6 +486,87 @@ export async function ungroupAllTabs(
   };
 }
 
+export async function collapseOtherTabGroups(
+  options: GroupingOptions = {},
+): Promise<TabGroupVisibilityResult> {
+  const settings = await getSettings();
+  const scope = options.scope ?? settings.scope;
+  const activeTab = await getActiveTab();
+  const activeGroupId =
+    activeTab?.groupId != null && activeTab.groupId !== NO_GROUP_ID
+      ? activeTab.groupId
+      : null;
+
+  if (activeGroupId == null) {
+    return {
+      action: 'collapseOthers',
+      activeGroupId: null,
+      collapsedGroupCount: 0,
+      expandedGroupCount: 0,
+      groupCount: 0,
+      unchangedGroupCount: 0,
+    };
+  }
+
+  const groups = await queryTabGroupsForScope(scope, activeTab?.windowId);
+  let collapsedGroupCount = 0;
+  let expandedGroupCount = 0;
+
+  for (const group of groups) {
+    if (group.id === activeGroupId) {
+      if (group.collapsed) {
+        await browser.tabGroups.update(group.id, { collapsed: false });
+        expandedGroupCount += 1;
+      }
+
+      continue;
+    }
+
+    if (!group.collapsed) {
+      await browser.tabGroups.update(group.id, { collapsed: true });
+      collapsedGroupCount += 1;
+    }
+  }
+
+  return {
+    action: 'collapseOthers',
+    activeGroupId,
+    collapsedGroupCount,
+    expandedGroupCount,
+    groupCount: groups.length,
+    unchangedGroupCount:
+      groups.length - collapsedGroupCount - expandedGroupCount,
+  };
+}
+
+export async function expandAllTabGroups(
+  options: GroupingOptions = {},
+): Promise<TabGroupVisibilityResult> {
+  const settings = await getSettings();
+  const scope = options.scope ?? settings.scope;
+  const activeTab = await getActiveTab();
+  const groups = await queryTabGroupsForScope(scope, activeTab?.windowId);
+  let expandedGroupCount = 0;
+
+  for (const group of groups) {
+    if (!group.collapsed) {
+      continue;
+    }
+
+    await browser.tabGroups.update(group.id, { collapsed: false });
+    expandedGroupCount += 1;
+  }
+
+  return {
+    action: 'expandAll',
+    activeGroupId: null,
+    collapsedGroupCount: 0,
+    expandedGroupCount,
+    groupCount: groups.length,
+    unchangedGroupCount: groups.length - expandedGroupCount,
+  };
+}
+
 export function buildAutoGroupPlan(
   tab: TabLike,
   tabsInWindow: TabLike[],
@@ -707,6 +805,32 @@ async function saveLastGroupingOperation(
 
 async function clearLastGroupingOperation(): Promise<void> {
   await browser.storage.session.remove(LAST_GROUPING_OPERATION_KEY);
+}
+
+async function getActiveTab(): Promise<TabLike | null> {
+  const [activeTab] = await browser.tabs.query({
+    active: true,
+    currentWindow: true,
+  });
+
+  return activeTab ?? null;
+}
+
+async function queryTabGroupsForScope(
+  scope: GroupingScope,
+  currentWindowId?: number,
+): Promise<TabGroupLike[]> {
+  if (scope === 'allWindows') {
+    return browser.tabGroups.query({}) as Promise<TabGroupLike[]>;
+  }
+
+  if (currentWindowId == null) {
+    return [];
+  }
+
+  return browser.tabGroups.query({
+    windowId: currentWindowId,
+  }) as Promise<TabGroupLike[]>;
 }
 
 function isLastGroupingOperation(
