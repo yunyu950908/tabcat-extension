@@ -312,12 +312,18 @@ function Options() {
             <label className="field">
               <span>Ignored domains</span>
               <textarea
+                aria-describedby="ignored-domains-hint"
+                placeholder={'github.com\ndocs.google.com\nlocalhost'}
                 value={ignoredDomainsInput}
                 onChange={(event) => {
                   setIgnoredDomainsInput(event.target.value);
                   setSaveState('idle');
                 }}
               />
+              <span className="field-hint" id="ignored-domains-hint">
+                One per line or comma-separated. Pasted URLs are saved as
+                hostnames.
+              </span>
             </label>
           </div>
         </section>
@@ -326,6 +332,10 @@ function Options() {
           <div className="section-heading">
             <h2>Rules</h2>
           </div>
+          <p className="section-description">
+            Rules run top to bottom. Name sets the group title, Merge combines
+            matches, and Ignore skips them.
+          </p>
 
           <div className="rules-list">
             <div className="rule-row rule-header">
@@ -349,6 +359,7 @@ function Options() {
                 />
                 <input
                   aria-label="Rule domain"
+                  placeholder="github.com"
                   value={rule.pattern}
                   onChange={(event) => {
                     updateRule(rule.id, { pattern: event.target.value });
@@ -385,6 +396,9 @@ function Options() {
                 <input
                   aria-label="Rule group name"
                   disabled={rule.action === 'ignore'}
+                  placeholder={
+                    rule.action === 'ignore' ? 'Not used' : 'Code'
+                  }
                   value={rule.value}
                   onChange={(event) => {
                     updateRule(rule.id, { value: event.target.value });
@@ -404,6 +418,7 @@ function Options() {
               <span />
               <input
                 aria-label="New rule domain"
+                placeholder="github.com"
                 value={ruleDraft.pattern}
                 onChange={(event) => {
                   setRuleDraft((currentDraft) => ({
@@ -445,6 +460,9 @@ function Options() {
               <input
                 aria-label="New rule group name"
                 disabled={ruleDraft.action === 'ignore'}
+                placeholder={
+                  ruleDraft.action === 'ignore' ? 'Not used' : 'Code'
+                }
                 value={ruleDraft.value}
                 onChange={(event) => {
                   setRuleDraft((currentDraft) => ({
@@ -469,13 +487,19 @@ function Options() {
             <h2>Import / export</h2>
           </div>
           <textarea
+            aria-describedby="settings-json-hint"
             className="json-field"
+            placeholder="Paste TabCat settings JSON here"
             value={settingsJson}
             onChange={(event) => {
               setSettingsJson(event.target.value);
               setSaveState('idle');
             }}
           />
+          <p className="field-hint" id="settings-json-hint">
+            Export fills this box with your current settings. Import replaces
+            settings from valid TabCat JSON.
+          </p>
           <div className="json-actions">
             <button
               className="secondary-action"
