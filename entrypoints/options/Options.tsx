@@ -171,126 +171,230 @@ function Options() {
 
   return (
     <main className="options-shell">
-      <header className="options-header">
-        <p className="eyebrow">TabCat</p>
-        <h1>Options</h1>
-      </header>
-
-      <section className="settings-section">
-        <label className="field">
-          <span>Grouping mode</span>
-          <select
-            value={settings.groupingMode}
-            onChange={(event) => {
-              updateSetting('groupingMode', event.target.value as GroupingMode);
-            }}
-          >
-            <option value="hostname">Hostname</option>
-            <option value="rootDomain">Root domain</option>
-          </select>
-        </label>
-
-        <label className="field">
-          <span>Scope</span>
-          <select
-            value={settings.scope}
-            onChange={(event) => {
-              updateSetting('scope', event.target.value as GroupingScope);
-            }}
-          >
-            <option value="currentWindow">Current window</option>
-            <option value="allWindows">All windows</option>
-          </select>
-        </label>
-
-        <label className="field">
-          <span>Minimum group size</span>
-          <input
-            min={2}
-            type="number"
-            value={settings.minGroupSize}
-            onChange={(event) => {
-              updateSetting(
-                'minGroupSize',
-                Math.max(2, Number(event.target.value)),
-              );
-            }}
-          />
-        </label>
-
-        <label className="toggle-field">
-          <input
-            checked={settings.includePinnedTabs}
-            type="checkbox"
-            onChange={(event) => {
-              updateSetting('includePinnedTabs', event.target.checked);
-            }}
-          />
-          <span>Include pinned tabs</span>
-        </label>
-
-        <label className="toggle-field">
-          <input
-            checked={settings.collapseNewGroups}
-            type="checkbox"
-            onChange={(event) => {
-              updateSetting('collapseNewGroups', event.target.checked);
-            }}
-          />
-          <span>Collapse new groups</span>
-        </label>
-
-        <label className="field field-wide">
-          <span>Ignored domains</span>
-          <textarea
-            value={ignoredDomainsInput}
-            onChange={(event) => {
-              setIgnoredDomainsInput(event.target.value);
-              setSaveState('idle');
-            }}
-          />
-        </label>
-      </section>
-
-      <section className="rules-section">
-        <div className="section-heading">
-          <h2>Rules</h2>
+      <header className="options-topbar">
+        <div className="title-block">
+          <p className="eyebrow">TabCat</p>
+          <h1>Settings</h1>
         </div>
 
-        <div className="rules-list">
-          <div className="rule-row rule-header">
-            <span>On</span>
-            <span>Domain</span>
-            <span>Match</span>
-            <span>Action</span>
-            <span>Group name</span>
-            <span />
+        <div className="header-actions">
+          <div aria-live="polite" className="status-slot">
+            {saveState === 'saved' && <span className="save-state">Saved</span>}
+            {error && <span className="error-message">{error}</span>}
+          </div>
+          <button
+            className="secondary-action"
+            disabled={saveState === 'saving'}
+            onClick={handleReset}
+            type="button"
+          >
+            Reset
+          </button>
+          <button
+            className="primary-action"
+            disabled={saveState === 'saving'}
+            onClick={handleSave}
+            type="button"
+          >
+            {saveState === 'saving' ? 'Saving...' : 'Save'}
+          </button>
+        </div>
+      </header>
+
+      <div className="options-grid">
+        <section className="settings-panel">
+          <div className="section-heading">
+            <h2>Grouping</h2>
           </div>
 
-          {settings.domainRules.map((rule) => (
-            <div className="rule-row" key={rule.id}>
-              <input
-                aria-label="Enable rule"
-                checked={rule.enabled}
-                type="checkbox"
+          <div className="field-stack">
+            <label className="field">
+              <span>Grouping mode</span>
+              <select
+                value={settings.groupingMode}
                 onChange={(event) => {
-                  updateRule(rule.id, { enabled: event.target.checked });
+                  updateSetting(
+                    'groupingMode',
+                    event.target.value as GroupingMode,
+                  );
+                }}
+              >
+                <option value="hostname">Hostname</option>
+                <option value="rootDomain">Root domain</option>
+              </select>
+            </label>
+
+            <label className="field">
+              <span>Scope</span>
+              <select
+                value={settings.scope}
+                onChange={(event) => {
+                  updateSetting('scope', event.target.value as GroupingScope);
+                }}
+              >
+                <option value="currentWindow">Current window</option>
+                <option value="allWindows">All windows</option>
+              </select>
+            </label>
+
+            <label className="field">
+              <span>Minimum group size</span>
+              <input
+                min={2}
+                type="number"
+                value={settings.minGroupSize}
+                onChange={(event) => {
+                  updateSetting(
+                    'minGroupSize',
+                    Math.max(2, Number(event.target.value)),
+                  );
                 }}
               />
-              <input
-                aria-label="Rule domain"
-                value={rule.pattern}
+            </label>
+          </div>
+        </section>
+
+        <section className="settings-panel">
+          <div className="section-heading">
+            <h2>Behavior</h2>
+          </div>
+
+          <div className="field-stack">
+            <div className="toggle-stack">
+              <label className="toggle-field">
+                <input
+                  checked={settings.includePinnedTabs}
+                  type="checkbox"
+                  onChange={(event) => {
+                    updateSetting('includePinnedTabs', event.target.checked);
+                  }}
+                />
+                <span>Include pinned tabs</span>
+              </label>
+
+              <label className="toggle-field">
+                <input
+                  checked={settings.collapseNewGroups}
+                  type="checkbox"
+                  onChange={(event) => {
+                    updateSetting('collapseNewGroups', event.target.checked);
+                  }}
+                />
+                <span>Collapse new groups</span>
+              </label>
+            </div>
+
+            <label className="field">
+              <span>Ignored domains</span>
+              <textarea
+                value={ignoredDomainsInput}
                 onChange={(event) => {
-                  updateRule(rule.id, { pattern: event.target.value });
+                  setIgnoredDomainsInput(event.target.value);
+                  setSaveState('idle');
+                }}
+              />
+            </label>
+          </div>
+        </section>
+
+        <section className="settings-panel panel-wide rules-section">
+          <div className="section-heading">
+            <h2>Rules</h2>
+          </div>
+
+          <div className="rules-list">
+            <div className="rule-row rule-header">
+              <span>On</span>
+              <span>Domain</span>
+              <span>Match</span>
+              <span>Action</span>
+              <span>Group name</span>
+              <span />
+            </div>
+
+            {settings.domainRules.map((rule) => (
+              <div className="rule-row" key={rule.id}>
+                <input
+                  aria-label="Enable rule"
+                  checked={rule.enabled}
+                  type="checkbox"
+                  onChange={(event) => {
+                    updateRule(rule.id, { enabled: event.target.checked });
+                  }}
+                />
+                <input
+                  aria-label="Rule domain"
+                  value={rule.pattern}
+                  onChange={(event) => {
+                    updateRule(rule.id, { pattern: event.target.value });
+                  }}
+                />
+                <select
+                  aria-label="Rule match mode"
+                  value={rule.matchMode}
+                  onChange={(event) => {
+                    updateRule(rule.id, {
+                      matchMode: event.target.value as RuleMatchMode,
+                    });
+                  }}
+                >
+                  <option value="exact">Exact</option>
+                  <option value="rootDomain">Root domain</option>
+                  <option value="suffix">Suffix</option>
+                </select>
+                <select
+                  aria-label="Rule action"
+                  value={rule.action}
+                  onChange={(event) => {
+                    const action = event.target.value as RuleAction;
+                    updateRule(rule.id, {
+                      action,
+                      value: action === 'ignore' ? '' : rule.value,
+                    });
+                  }}
+                >
+                  <option value="name">Name</option>
+                  <option value="merge">Merge</option>
+                  <option value="ignore">Ignore</option>
+                </select>
+                <input
+                  aria-label="Rule group name"
+                  disabled={rule.action === 'ignore'}
+                  value={rule.value}
+                  onChange={(event) => {
+                    updateRule(rule.id, { value: event.target.value });
+                  }}
+                />
+                <button
+                  className="icon-action"
+                  onClick={() => removeRule(rule.id)}
+                  type="button"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+
+            <div className="rule-row rule-draft">
+              <span />
+              <input
+                aria-label="New rule domain"
+                value={ruleDraft.pattern}
+                onChange={(event) => {
+                  setRuleDraft((currentDraft) => ({
+                    ...currentDraft,
+                    pattern: event.target.value,
+                  }));
                 }}
               />
               <select
-                aria-label="Rule match mode"
-                value={rule.matchMode}
+                aria-label="New rule match mode"
+                value={ruleDraft.matchMode}
                 onChange={(event) => {
-                  updateRule(rule.id, {
+                  setRuleDraft((currentDraft) => ({
+                    ...currentDraft,
                     matchMode: event.target.value as RuleMatchMode,
-                  });
+                  }));
                 }}
               >
                 <option value="exact">Exact</option>
@@ -298,14 +402,15 @@ function Options() {
                 <option value="suffix">Suffix</option>
               </select>
               <select
-                aria-label="Rule action"
-                value={rule.action}
+                aria-label="New rule action"
+                value={ruleDraft.action}
                 onChange={(event) => {
                   const action = event.target.value as RuleAction;
-                  updateRule(rule.id, {
+                  setRuleDraft((currentDraft) => ({
+                    ...currentDraft,
                     action,
-                    value: action === 'ignore' ? '' : rule.value,
-                  });
+                    value: action === 'ignore' ? '' : currentDraft.value,
+                  }));
                 }}
               >
                 <option value="name">Name</option>
@@ -313,134 +418,58 @@ function Options() {
                 <option value="ignore">Ignore</option>
               </select>
               <input
-                aria-label="Rule group name"
-                disabled={rule.action === 'ignore'}
-                value={rule.value}
+                aria-label="New rule group name"
+                disabled={ruleDraft.action === 'ignore'}
+                value={ruleDraft.value}
                 onChange={(event) => {
-                  updateRule(rule.id, { value: event.target.value });
+                  setRuleDraft((currentDraft) => ({
+                    ...currentDraft,
+                    value: event.target.value,
+                  }));
                 }}
               />
               <button
                 className="icon-action"
-                onClick={() => removeRule(rule.id)}
+                onClick={handleAddRule}
                 type="button"
               >
-                Remove
+                Add
               </button>
             </div>
-          ))}
+          </div>
+        </section>
 
-          <div className="rule-row rule-draft">
-            <span />
-            <input
-              aria-label="New rule domain"
-              value={ruleDraft.pattern}
-              onChange={(event) => {
-                setRuleDraft((currentDraft) => ({
-                  ...currentDraft,
-                  pattern: event.target.value,
-                }));
-              }}
-            />
-            <select
-              aria-label="New rule match mode"
-              value={ruleDraft.matchMode}
-              onChange={(event) => {
-                setRuleDraft((currentDraft) => ({
-                  ...currentDraft,
-                  matchMode: event.target.value as RuleMatchMode,
-                }));
-              }}
+        <section className="settings-panel panel-wide json-section">
+          <div className="section-heading">
+            <h2>Import / export</h2>
+          </div>
+          <textarea
+            className="json-field"
+            value={settingsJson}
+            onChange={(event) => {
+              setSettingsJson(event.target.value);
+              setSaveState('idle');
+            }}
+          />
+          <div className="json-actions">
+            <button
+              className="secondary-action"
+              onClick={handleExportSettings}
+              type="button"
             >
-              <option value="exact">Exact</option>
-              <option value="rootDomain">Root domain</option>
-              <option value="suffix">Suffix</option>
-            </select>
-            <select
-              aria-label="New rule action"
-              value={ruleDraft.action}
-              onChange={(event) => {
-                const action = event.target.value as RuleAction;
-                setRuleDraft((currentDraft) => ({
-                  ...currentDraft,
-                  action,
-                  value: action === 'ignore' ? '' : currentDraft.value,
-                }));
-              }}
+              Export JSON
+            </button>
+            <button
+              className="secondary-action"
+              disabled={!settingsJson.trim() || saveState === 'saving'}
+              onClick={handleImportSettings}
+              type="button"
             >
-              <option value="name">Name</option>
-              <option value="merge">Merge</option>
-              <option value="ignore">Ignore</option>
-            </select>
-            <input
-              aria-label="New rule group name"
-              disabled={ruleDraft.action === 'ignore'}
-              value={ruleDraft.value}
-              onChange={(event) => {
-                setRuleDraft((currentDraft) => ({
-                  ...currentDraft,
-                  value: event.target.value,
-                }));
-              }}
-            />
-            <button className="icon-action" onClick={handleAddRule} type="button">
-              Add
+              Import JSON
             </button>
           </div>
-        </div>
-      </section>
-
-      <section className="json-section">
-        <div className="section-heading">
-          <h2>Import / export</h2>
-        </div>
-        <textarea
-          className="json-field"
-          value={settingsJson}
-          onChange={(event) => {
-            setSettingsJson(event.target.value);
-            setSaveState('idle');
-          }}
-        />
-        <div className="json-actions">
-          <button
-            className="secondary-action"
-            onClick={handleExportSettings}
-            type="button"
-          >
-            Export JSON
-          </button>
-          <button
-            className="secondary-action"
-            disabled={!settingsJson.trim() || saveState === 'saving'}
-            onClick={handleImportSettings}
-            type="button"
-          >
-            Import JSON
-          </button>
-        </div>
-      </section>
-
-      <footer className="options-footer">
-        <button
-          className="primary-action"
-          disabled={saveState === 'saving'}
-          onClick={handleSave}
-          type="button"
-        >
-          {saveState === 'saving' ? 'Saving...' : 'Save'}
-        </button>
-        <button
-          className="secondary-action"
-          disabled={saveState === 'saving'}
-          onClick={handleReset}
-          type="button"
-        >
-          Reset
-        </button>
-        {saveState === 'saved' && <span className="save-state">Saved</span>}
-        {error && <span className="error-message">{error}</span>}
-      </footer>
+        </section>
+      </div>
     </main>
   );
 }
