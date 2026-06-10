@@ -263,6 +263,20 @@ function Options() {
             <div className="toggle-stack">
               <label className="toggle-field">
                 <input
+                  checked={settings.arrangeTabsAfterGrouping}
+                  type="checkbox"
+                  onChange={(event) => {
+                    updateSetting(
+                      'arrangeTabsAfterGrouping',
+                      event.target.checked,
+                    );
+                  }}
+                />
+                <span>Arrange grouped tabs to the left</span>
+              </label>
+
+              <label className="toggle-field">
+                <input
                   checked={settings.autoGroupNewTabs}
                   type="checkbox"
                   onChange={(event) => {

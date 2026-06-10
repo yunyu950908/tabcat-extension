@@ -14,6 +14,7 @@ export interface DomainRule {
 
 export interface TabCatSettings {
   autoGroupNewTabs: boolean;
+  arrangeTabsAfterGrouping: boolean;
   collapseNewGroups: boolean;
   domainRules: DomainRule[];
   groupingMode: GroupingMode;
@@ -25,6 +26,7 @@ export interface TabCatSettings {
 
 export const DEFAULT_SETTINGS: TabCatSettings = {
   autoGroupNewTabs: false,
+  arrangeTabsAfterGrouping: true,
   collapseNewGroups: false,
   domainRules: [],
   groupingMode: 'hostname',
@@ -89,6 +91,7 @@ export function normalizeSettings(value: unknown): TabCatSettings {
 
   return {
     autoGroupNewTabs: settings.autoGroupNewTabs === true,
+    arrangeTabsAfterGrouping: settings.arrangeTabsAfterGrouping !== false,
     collapseNewGroups: settings.collapseNewGroups === true,
     domainRules: Array.isArray(settings.domainRules)
       ? settings.domainRules
