@@ -148,6 +148,7 @@ export interface UngroupAllResult {
 }
 
 export interface ArrangeTabsWindowPlan {
+  groupIds: number[];
   startIndex: number;
   tabIdGroups: number[][];
   tabIds: number[];
@@ -303,7 +304,8 @@ export async function groupCurrentWindowTabs(
     });
   }
 
-  const arrangement = resolvedOptions.arrangeTabsAfterGrouping
+  const arrangement =
+    resolvedOptions.arrangeTabsAfterGrouping && appliedGroups.length > 0
     ? await arrangeTabsAfterGrouping(tabs, appliedGroups)
     : null;
 
@@ -364,9 +366,10 @@ export function buildArrangeTabsPlan(
       groupBlocks.set(groupId, block);
     }
 
-    const tabIds = [...groupBlocks.values()]
-      .sort((a, b) => a.firstOrder - b.firstOrder)
-      .flatMap((block) => block.tabIds);
+    const orderedGroups = [...groupBlocks.entries()]
+      .map(([groupId, block]) => ({ groupId, ...block }))
+      .sort((a, b) => a.firstOrder - b.firstOrder);
+    const tabIds = orderedGroups.flatMap((group) => group.tabIds);
 
     if (tabIds.length === 0) {
       continue;
@@ -375,10 +378,9 @@ export function buildArrangeTabsPlan(
     const windowId = sortedTabs.find((tab) => tab.windowId != null)?.windowId;
     windows.push({
       ...(windowId != null && { windowId }),
+      groupIds: orderedGroups.map((group) => group.groupId),
       startIndex: pinnedCount,
-      tabIdGroups: [...groupBlocks.values()]
-        .sort((a, b) => a.firstOrder - b.firstOrder)
-        .map((block) => block.tabIds),
+      tabIdGroups: orderedGroups.map((group) => group.tabIds),
       tabIds,
     });
   }
@@ -399,8 +401,8 @@ export async function arrangeTabsAfterGrouping(
   const plan = buildArrangeTabsPlan(tabs, appliedGroups);
 
   for (const windowPlan of plan.windows) {
-    for (const tabIds of [...windowPlan.tabIdGroups].reverse()) {
-      await browser.tabs.move(tabIds, {
+    for (const groupId of [...windowPlan.groupIds].reverse()) {
+      await browser.tabGroups.move(groupId, {
         index: windowPlan.startIndex,
         ...(windowPlan.windowId != null && { windowId: windowPlan.windowId }),
       });
