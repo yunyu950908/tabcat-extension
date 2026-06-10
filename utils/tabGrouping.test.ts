@@ -5,7 +5,7 @@ import {
   buildAutoGroupPlan,
   buildGroupingPlan,
   buildHostnameGroupingPlan,
-  collapseOtherTabGroups,
+  collapseAllTabGroups,
   expandAllTabGroups,
   buildUngroupAllPlan,
   getHostnameGroupingKey,
@@ -607,7 +607,7 @@ describe('auto group plan', () => {
 });
 
 describe('tab group visibility actions', () => {
-  it('collapses other groups and keeps the active group expanded in the current window', async () => {
+  it('collapses all expanded groups in the current window', async () => {
     const queryTabs = vi.fn(async () => [
       tab(1, 'https://github.com/a', { groupId: 10, windowId: 7 }),
     ]);
@@ -624,26 +624,25 @@ describe('tab group visibility actions', () => {
       updateGroup,
     });
 
-    await expect(collapseOtherTabGroups()).resolves.toEqual({
-      action: 'collapseOthers',
-      activeGroupId: 10,
-      collapsedGroupCount: 1,
+    await expect(collapseAllTabGroups()).resolves.toEqual({
+      action: 'collapseAll',
+      collapsedGroupCount: 2,
       expandedGroupCount: 0,
       groupCount: 3,
-      unchangedGroupCount: 2,
+      unchangedGroupCount: 1,
     });
     expect(queryGroups).toHaveBeenCalledWith({ windowId: 7 });
-    expect(updateGroup).toHaveBeenCalledOnce();
-    expect(updateGroup).toHaveBeenCalledWith(11, { collapsed: true });
+    expect(updateGroup).toHaveBeenNthCalledWith(1, 10, { collapsed: true });
+    expect(updateGroup).toHaveBeenNthCalledWith(2, 11, { collapsed: true });
   });
 
-  it('expands a collapsed active group while collapsing other expanded groups', async () => {
+  it('collapses groups even when the active tab is ungrouped', async () => {
     const queryTabs = vi.fn(async () => [
-      tab(1, 'https://github.com/a', { groupId: 10, windowId: 7 }),
+      tab(1, 'https://github.com/a', { groupId: -1, windowId: 7 }),
     ]);
     const queryGroups = vi.fn(async () => [
-      tabGroup(10, { collapsed: true, windowId: 7 }),
-      tabGroup(11, { collapsed: false, windowId: 7 }),
+      tabGroup(10, { collapsed: false, windowId: 7 }),
+      tabGroup(11, { collapsed: true, windowId: 7 }),
     ]);
     const updateGroup = vi.fn(async (groupId: number) => tabGroup(groupId));
 
@@ -653,24 +652,27 @@ describe('tab group visibility actions', () => {
       updateGroup,
     });
 
-    await expect(collapseOtherTabGroups()).resolves.toEqual({
-      action: 'collapseOthers',
-      activeGroupId: 10,
+    await expect(collapseAllTabGroups()).resolves.toEqual({
+      action: 'collapseAll',
       collapsedGroupCount: 1,
-      expandedGroupCount: 1,
+      expandedGroupCount: 0,
       groupCount: 2,
-      unchangedGroupCount: 0,
+      unchangedGroupCount: 1,
     });
-    expect(updateGroup).toHaveBeenNthCalledWith(1, 10, { collapsed: false });
-    expect(updateGroup).toHaveBeenNthCalledWith(2, 11, { collapsed: true });
+    expect(queryGroups).toHaveBeenCalledWith({ windowId: 7 });
+    expect(updateGroup).toHaveBeenCalledOnce();
+    expect(updateGroup).toHaveBeenCalledWith(10, { collapsed: true });
   });
 
-  it('does not collapse all groups when the active tab is ungrouped', async () => {
+  it('can collapse groups across all windows when configured', async () => {
     const queryTabs = vi.fn(async () => [
-      tab(1, 'https://github.com/a', { groupId: -1, windowId: 7 }),
+      tab(1, 'https://github.com/a', { groupId: 10, windowId: 7 }),
     ]);
-    const queryGroups = vi.fn();
-    const updateGroup = vi.fn();
+    const queryGroups = vi.fn(async () => [
+      tabGroup(10, { collapsed: false, windowId: 7 }),
+      tabGroup(11, { collapsed: false, windowId: 8 }),
+    ]);
+    const updateGroup = vi.fn(async (groupId: number) => tabGroup(groupId));
 
     stubBrowserForVisibilityActions({
       queryGroups,
@@ -678,16 +680,16 @@ describe('tab group visibility actions', () => {
       updateGroup,
     });
 
-    await expect(collapseOtherTabGroups()).resolves.toEqual({
-      action: 'collapseOthers',
-      activeGroupId: null,
-      collapsedGroupCount: 0,
+    await expect(collapseAllTabGroups({ scope: 'allWindows' })).resolves.toEqual({
+      action: 'collapseAll',
+      collapsedGroupCount: 2,
       expandedGroupCount: 0,
-      groupCount: 0,
+      groupCount: 2,
       unchangedGroupCount: 0,
     });
-    expect(queryGroups).not.toHaveBeenCalled();
-    expect(updateGroup).not.toHaveBeenCalled();
+    expect(queryGroups).toHaveBeenCalledWith({});
+    expect(updateGroup).toHaveBeenNthCalledWith(1, 10, { collapsed: true });
+    expect(updateGroup).toHaveBeenNthCalledWith(2, 11, { collapsed: true });
   });
 
   it('expands all collapsed groups in the current window', async () => {
@@ -709,7 +711,6 @@ describe('tab group visibility actions', () => {
 
     await expect(expandAllTabGroups()).resolves.toEqual({
       action: 'expandAll',
-      activeGroupId: null,
       collapsedGroupCount: 0,
       expandedGroupCount: 2,
       groupCount: 3,
@@ -738,7 +739,6 @@ describe('tab group visibility actions', () => {
 
     await expect(expandAllTabGroups({ scope: 'allWindows' })).resolves.toEqual({
       action: 'expandAll',
-      activeGroupId: null,
       collapsedGroupCount: 0,
       expandedGroupCount: 2,
       groupCount: 2,
