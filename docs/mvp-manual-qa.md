@@ -69,7 +69,7 @@ Latest local result:
 ### Keyboard Shortcut
 
 1. Open `chrome://extensions/shortcuts`.
-2. Confirm TabCat exposes Group tabs in the current window by hostname.
+2. Confirm TabCat exposes Group tabs using TabCat settings.
 3. Trigger the shortcut.
 4. Confirm it performs the same grouping behavior as the popup button.
 

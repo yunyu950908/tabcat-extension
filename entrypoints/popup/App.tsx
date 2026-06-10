@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   getLastGroupingOperation,
-  groupCurrentWindowTabsByHostname,
+  groupCurrentWindowTabs,
   type GroupingSummary,
   undoLastGroupingOperation,
 } from '@/utils/tabGrouping';
@@ -34,7 +34,7 @@ function App() {
     setIsTidying(true);
 
     try {
-      const result = await groupCurrentWindowTabsByHostname();
+      const result = await groupCurrentWindowTabs();
       setSummaryState({ kind: 'tidy', summary: result.plan.summary });
       setUndoAvailable(result.appliedGroups.length > 0);
     } catch (caughtError) {
@@ -95,6 +95,15 @@ function App() {
 
       {summaryState && <SummaryPanel summaryState={summaryState} />}
       {error && <p className="error-message">{error}</p>}
+      <button
+        className="options-action"
+        onClick={() => {
+          void browser.runtime.openOptionsPage();
+        }}
+        type="button"
+      >
+        Options
+      </button>
     </main>
   );
 }
