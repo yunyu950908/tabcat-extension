@@ -14,7 +14,7 @@ export default defineConfig({
         },
       },
     },
-    permissions: ['tabs', 'tabGroups'],
+    permissions: ['tabs', 'tabGroups', 'storage'],
   },
   modules: ['@wxt-dev/module-react'],
 });

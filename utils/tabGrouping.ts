@@ -1,4 +1,5 @@
 const DEFAULT_MIN_GROUP_SIZE = 2;
+const LAST_GROUPING_OPERATION_KEY = 'tabcat:lastGroupingOperation';
 const NO_GROUP_ID = -1;
 type TabGroupColor =
   | 'blue'
@@ -96,6 +97,18 @@ export interface ApplyGroupingResult {
   plan: GroupingPlan;
 }
 
+export interface LastGroupingOperation {
+  appliedGroups: AppliedGroup[];
+  createdAt: number;
+  version: 1;
+}
+
+export interface UndoGroupingResult {
+  hadOperation: boolean;
+  skippedTabCount: number;
+  undoneTabCount: number;
+}
+
 export function buildHostnameGroupingPlan(
   tabs: TabLike[],
   options: GroupingOptions = {},
@@ -188,7 +201,60 @@ export async function groupCurrentWindowTabsByHostname(
     });
   }
 
+  await saveLastGroupingOperation(appliedGroups);
+
   return { appliedGroups, plan };
+}
+
+export async function getLastGroupingOperation(): Promise<LastGroupingOperation | null> {
+  const stored = await browser.storage.session.get(LAST_GROUPING_OPERATION_KEY);
+  const operation = stored[LAST_GROUPING_OPERATION_KEY];
+
+  if (!isLastGroupingOperation(operation)) {
+    return null;
+  }
+
+  return operation;
+}
+
+export async function undoLastGroupingOperation(): Promise<UndoGroupingResult> {
+  const operation = await getLastGroupingOperation();
+
+  if (!operation) {
+    return {
+      hadOperation: false,
+      skippedTabCount: 0,
+      undoneTabCount: 0,
+    };
+  }
+
+  const affectedTabIds = new Set(
+    operation.appliedGroups.flatMap((group) => group.tabIds),
+  );
+  const createdGroupIds = new Set(
+    operation.appliedGroups.map((group) => group.tabGroupId),
+  );
+  const tabs = await browser.tabs.query({});
+  const undoableTabIds = tabs
+    .filter(
+      (tab) =>
+        tab.id != null &&
+        affectedTabIds.has(tab.id) &&
+        createdGroupIds.has(tab.groupId),
+    )
+    .map((tab) => tab.id as number);
+
+  if (undoableTabIds.length > 0) {
+    await browser.tabs.ungroup(toNonEmptyArray(undoableTabIds));
+  }
+
+  await clearLastGroupingOperation();
+
+  return {
+    hadOperation: true,
+    skippedTabCount: affectedTabIds.size - undoableTabIds.length,
+    undoneTabCount: undoableTabIds.length,
+  };
 }
 
 export function getHostnameGroupingKey(url: string): string | null {
@@ -225,6 +291,64 @@ function toNonEmptyArray<T>(items: T[]): NonEmptyArray<T> {
   }
 
   return items as NonEmptyArray<T>;
+}
+
+async function saveLastGroupingOperation(
+  appliedGroups: AppliedGroup[],
+): Promise<void> {
+  if (appliedGroups.length === 0) {
+    await clearLastGroupingOperation();
+    return;
+  }
+
+  const operation: LastGroupingOperation = {
+    appliedGroups,
+    createdAt: Date.now(),
+    version: 1,
+  };
+
+  await browser.storage.session.set({
+    [LAST_GROUPING_OPERATION_KEY]: operation,
+  });
+}
+
+async function clearLastGroupingOperation(): Promise<void> {
+  await browser.storage.session.remove(LAST_GROUPING_OPERATION_KEY);
+}
+
+function isLastGroupingOperation(
+  value: unknown,
+): value is LastGroupingOperation {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const operation = value as Partial<LastGroupingOperation>;
+
+  return (
+    operation.version === 1 &&
+    typeof operation.createdAt === 'number' &&
+    Array.isArray(operation.appliedGroups) &&
+    operation.appliedGroups.every(isAppliedGroup)
+  );
+}
+
+function isAppliedGroup(value: unknown): value is AppliedGroup {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const group = value as Partial<AppliedGroup>;
+
+  return (
+    typeof group.key === 'string' &&
+    typeof group.tabGroupId === 'number' &&
+    Array.isArray(group.tabIds) &&
+    group.tabIds.every((tabId) => typeof tabId === 'number') &&
+    typeof group.title === 'string' &&
+    typeof group.color === 'string' &&
+    (GROUP_COLORS as string[]).includes(group.color)
+  );
 }
 
 function getEligibleTab(
