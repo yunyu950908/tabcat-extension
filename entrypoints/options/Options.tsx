@@ -219,8 +219,8 @@ function Options() {
                   );
                 }}
               >
-                <option value="hostname">Hostname</option>
                 <option value="rootDomain">Root domain</option>
+                <option value="hostname">Hostname</option>
               </select>
             </label>
 
