@@ -7,7 +7,7 @@ import {
   normalizeHostname,
   type TabLike,
 } from './tabGrouping';
-import { parseIgnoredDomainsInput } from './settings';
+import { normalizeSettings, parseIgnoredDomainsInput } from './settings';
 
 describe('hostname grouping keys', () => {
   it('normalizes case and a leading www subdomain', () => {
@@ -163,6 +163,88 @@ describe('hostname grouping plan', () => {
       { id: 4, key: 'github.com', reason: 'ignored-domain' },
     ]);
   });
+
+  it('renames groups with domain rules', () => {
+    const plan = buildGroupingPlan(
+      [tab(1, 'https://github.com/a'), tab(2, 'https://github.com/b')],
+      {
+        domainRules: [
+          {
+            action: 'name',
+            enabled: true,
+            id: 'rule-1',
+            matchMode: 'exact',
+            pattern: 'github.com',
+            value: 'Code',
+          },
+        ],
+      },
+    );
+
+    expect(plan.groups).toMatchObject([
+      {
+        key: 'github.com',
+        tabIds: [1, 2],
+        title: 'Code',
+      },
+    ]);
+  });
+
+  it('merges hostnames with domain rules', () => {
+    const plan = buildGroupingPlan(
+      [
+        tab(1, 'https://docs.google.com/a'),
+        tab(2, 'https://drive.google.com/b'),
+      ],
+      {
+        domainRules: [
+          {
+            action: 'merge',
+            enabled: true,
+            id: 'rule-1',
+            matchMode: 'rootDomain',
+            pattern: 'google.com',
+            value: 'Google Workspace',
+          },
+        ],
+      },
+    );
+
+    expect(plan.groups).toMatchObject([
+      {
+        key: 'Google Workspace',
+        tabIds: [1, 2],
+        title: 'Google Workspace',
+      },
+    ]);
+  });
+
+  it('ignores suffix matches with domain rules', () => {
+    const plan = buildGroupingPlan(
+      [
+        tab(1, 'https://docs.google.com/a'),
+        tab(2, 'https://docs.google.com/b'),
+      ],
+      {
+        domainRules: [
+          {
+            action: 'ignore',
+            enabled: true,
+            id: 'rule-1',
+            matchMode: 'suffix',
+            pattern: 'google.com',
+            value: '',
+          },
+        ],
+      },
+    );
+
+    expect(plan.groups).toEqual([]);
+    expect(plan.skipped).toMatchObject([
+      { id: 1, reason: 'ignored-domain' },
+      { id: 2, reason: 'ignored-domain' },
+    ]);
+  });
 });
 
 describe('settings helpers', () => {
@@ -172,6 +254,55 @@ describe('settings helpers', () => {
         'https://www.github.com/a\nDocs.Google.com, localhost:3000',
       ),
     ).toEqual(['docs.google.com', 'github.com', 'localhost']);
+  });
+
+  it('drops invalid imported rules', () => {
+    expect(
+      normalizeSettings({
+        domainRules: [
+          {
+            action: 'merge',
+            enabled: true,
+            id: 'valid',
+            matchMode: 'exact',
+            pattern: 'github.com',
+            value: 'Code',
+          },
+          {
+            action: 'merge',
+            enabled: true,
+            id: 'missing-value',
+            matchMode: 'exact',
+            pattern: 'example.com',
+            value: '',
+          },
+        ],
+      }).domainRules,
+    ).toMatchObject([
+      {
+        action: 'merge',
+        id: 'valid',
+        matchMode: 'exact',
+        pattern: 'github.com',
+        value: 'Code',
+      },
+    ]);
+  });
+
+  it('normalizes imported scalar settings safely', () => {
+    expect(
+      normalizeSettings({
+        collapseNewGroups: 'true',
+        includePinnedTabs: 'true',
+        minGroupSize: '4',
+        ignoredDomains: ['valid.com', 'not valid.com'],
+      }),
+    ).toMatchObject({
+      collapseNewGroups: false,
+      ignoredDomains: ['valid.com'],
+      includePinnedTabs: false,
+      minGroupSize: 4,
+    });
   });
 });
 

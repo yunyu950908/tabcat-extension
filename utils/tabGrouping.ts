@@ -1,5 +1,11 @@
 import { getDomain } from 'tldts';
-import { getSettings, type GroupingMode, type GroupingScope } from './settings';
+import {
+  getSettings,
+  normalizeDomainInput,
+  type DomainRule,
+  type GroupingMode,
+  type GroupingScope,
+} from './settings';
 
 const DEFAULT_MIN_GROUP_SIZE = 2;
 const LAST_GROUPING_OPERATION_KEY = 'tabcat:lastGroupingOperation';
@@ -15,6 +21,11 @@ type TabGroupColor =
   | 'red'
   | 'yellow';
 type NonEmptyArray<T> = [T, ...T[]];
+
+interface CandidateGroup {
+  tabs: PlannedTab[];
+  title: string;
+}
 
 const GROUP_COLORS: TabGroupColor[] = [
   'blue',
@@ -49,6 +60,7 @@ export type SkipReason =
 
 export interface GroupingOptions {
   collapseNewGroups?: boolean;
+  domainRules?: DomainRule[];
   groupingMode?: GroupingMode;
   ignoredDomains?: string[];
   includePinnedTabs?: boolean;
@@ -130,7 +142,7 @@ export function buildGroupingPlan(
 ): GroupingPlan {
   const minGroupSize = Math.max(2, options.minGroupSize ?? DEFAULT_MIN_GROUP_SIZE);
   const skipped: SkippedTab[] = [];
-  const candidates = new Map<string, PlannedTab[]>();
+  const candidates = new Map<string, CandidateGroup>();
 
   for (const tab of tabs) {
     const candidate = getEligibleTab(tab, options);
@@ -140,17 +152,21 @@ export function buildGroupingPlan(
       continue;
     }
 
-    const groupTabs = candidates.get(candidate.key) ?? [];
-    groupTabs.push(candidate.tab);
-    candidates.set(candidate.key, groupTabs);
+    const candidateGroup = candidates.get(candidate.key) ?? {
+      tabs: [],
+      title: candidate.title,
+    };
+    candidateGroup.tabs.push(candidate.tab);
+    candidates.set(candidate.key, candidateGroup);
   }
 
   const groups: PlannedGroup[] = [];
   let eligibleTabCount = 0;
 
-  for (const [key, groupTabs] of [...candidates.entries()].sort(([a], [b]) =>
-    a.localeCompare(b),
+  for (const [key, candidateGroup] of [...candidates.entries()].sort(
+    ([a], [b]) => a.localeCompare(b),
   )) {
+    const groupTabs = candidateGroup.tabs;
     eligibleTabCount += groupTabs.length;
 
     if (groupTabs.length < minGroupSize) {
@@ -171,7 +187,7 @@ export function buildGroupingPlan(
       key,
       tabIds: groupTabs.map((tab) => tab.id),
       tabs: groupTabs,
-      title: key,
+      title: candidateGroup.title,
     });
   }
 
@@ -204,6 +220,7 @@ export async function groupCurrentWindowTabs(
   const settings = await getSettings();
   const resolvedOptions: GroupingOptions = {
     collapseNewGroups: settings.collapseNewGroups,
+    domainRules: settings.domainRules,
     groupingMode: settings.groupingMode,
     ignoredDomains: settings.ignoredDomains,
     includePinnedTabs: settings.includePinnedTabs,
@@ -407,7 +424,7 @@ function getEligibleTab(
   tab: TabLike,
   options: GroupingOptions,
 ):
-  | { key: string; ok: true; tab: PlannedTab }
+  | { key: string; ok: true; tab: PlannedTab; title: string }
   | { ok: false; skipped: SkippedTab } {
   if (tab.id == null) {
     return {
@@ -469,12 +486,20 @@ function getEligibleTab(
     };
   }
 
-  if (isIgnoredDomain(groupingKey, options.ignoredDomains ?? [])) {
+  const ruleResult = applyDomainRules(
+    groupingKey,
+    options.domainRules ?? [],
+  );
+
+  if (
+    isIgnoredDomain(groupingKey, options.ignoredDomains ?? []) ||
+    ruleResult.action === 'ignore'
+  ) {
     return {
       ok: false,
       skipped: {
         id: tab.id,
-        key: groupingKey.key,
+        key: ruleResult.key,
         reason: 'ignored-domain',
         title: tab.title,
         url: tab.url,
@@ -483,7 +508,7 @@ function getEligibleTab(
   }
 
   return {
-    key: groupingKey.key,
+    key: ruleResult.key,
     ok: true,
     tab: {
       id: tab.id,
@@ -491,6 +516,7 @@ function getEligibleTab(
       url: tab.url,
       windowId: tab.windowId,
     },
+    title: ruleResult.title,
   };
 }
 
@@ -504,5 +530,56 @@ function isIgnoredDomain(
     ignored.has(groupingKey.key) ||
     ignored.has(groupingKey.hostname) ||
     (groupingKey.rootDomain != null && ignored.has(groupingKey.rootDomain))
+  );
+}
+
+function applyDomainRules(
+  groupingKey: { hostname: string; key: string; rootDomain: string | null },
+  domainRules: DomainRule[],
+): { action: 'group' | 'ignore'; key: string; title: string } {
+  let key = groupingKey.key;
+  let title = groupingKey.key;
+
+  for (const rule of domainRules) {
+    if (!rule.enabled || !doesRuleMatch(rule, groupingKey)) {
+      continue;
+    }
+
+    if (rule.action === 'ignore') {
+      return { action: 'ignore', key, title };
+    }
+
+    if (rule.action === 'merge') {
+      key = rule.value;
+      title = rule.value;
+      continue;
+    }
+
+    title = rule.value;
+  }
+
+  return { action: 'group', key, title };
+}
+
+function doesRuleMatch(
+  rule: DomainRule,
+  groupingKey: { hostname: string; key: string; rootDomain: string | null },
+): boolean {
+  const pattern = normalizeDomainInput(rule.pattern);
+
+  if (!pattern) {
+    return false;
+  }
+
+  if (rule.matchMode === 'exact') {
+    return groupingKey.hostname === pattern;
+  }
+
+  if (rule.matchMode === 'rootDomain') {
+    return groupingKey.rootDomain === pattern;
+  }
+
+  return (
+    groupingKey.hostname === pattern || groupingKey.hostname.endsWith(`.${pattern}`)
   );
 }
