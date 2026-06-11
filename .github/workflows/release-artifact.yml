@@ -1,4 +1,4 @@
-name: Release Artifact
+name: Release
 
 on:
   workflow_dispatch:
@@ -60,25 +60,27 @@ jobs:
         if: steps.release.outputs.should_release == 'true'
         run: pnpm zip
 
-      - name: Collect artifact
+      - name: Collect release asset
         if: steps.release.outputs.should_release == 'true'
         run: |
-          mkdir -p artifacts
-          cp .output/*.zip artifacts/
+          mkdir -p release-assets
+          cp .output/*.zip release-assets/
 
-      - name: Upload artifact
+      - name: Create or update GitHub Release
         if: steps.release.outputs.should_release == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: tabcat-extension-${{ steps.release.outputs.tag }}
-          path: artifacts/*.zip
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Create release tag
-        if: steps.release.outputs.create_tag == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag "${{ steps.release.outputs.tag }}"
-          git push origin "${{ steps.release.outputs.tag }}"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release-assets/*.zip --clobber
+          elif git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" release-assets/*.zip \
+              --title "$RELEASE_TAG" \
+              --notes "TabCat $RELEASE_TAG"
+          else
+            gh release create "$RELEASE_TAG" release-assets/*.zip \
+              --target "$GITHUB_SHA" \
+              --title "$RELEASE_TAG" \
+              --notes "TabCat $RELEASE_TAG"
+          fi

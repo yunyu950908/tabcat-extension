@@ -192,15 +192,15 @@ pnpm build
 
 GitHub Actions 会在 pull request 和 push 到 `main` 时自动运行同一组检查。
 
-## 发布 Artifact
+## 发布 Release
 
-发布通过 release PR 进入 `main`，合并后由 GitHub Actions 自动打 tag 和生成 artifact。
+发布通过 release PR 进入 `main`，合并后由 GitHub Actions 自动创建 GitHub Release 并上传 release asset。
 
 1. 从最新 `main` 切 release 分支，分支名使用 `release/vX.Y.Z`。
 2. 使用封装好的 release script 升级版本号。
 3. 提交并创建 PR。
 4. PR 通过 CI 和 release version check 后合并到 `main`。
-5. `main` 上检测到 `package.json` version 增加后，release artifact workflow 会自动验证、打 `vX.Y.Z` tag、执行 `pnpm zip` 并上传 GitHub Actions artifact。
+5. `main` 上检测到 `package.json` version 增加后，Release workflow 会自动验证、创建 `vX.Y.Z` GitHub Release、执行 `pnpm zip` 并把 zip 上传为 release asset。
 
 示例：
 
@@ -222,7 +222,7 @@ git push -u origin release/v0.1.0
 
 这些脚本已经固定 `--no-git-tag-version`，tag 由合并到 `main` 后的 workflow 创建。不要直接运行会自动打 tag 的 `pnpm version patch/minor/major`。
 
-补发 artifact 时，也可以手动推送已有版本 tag 或在 GitHub Actions 中手动运行 release artifact workflow。当前 workflow 只上传 artifact，不自动创建 GitHub Release，也不自动发布到 Chrome Web Store。
+补发 release asset 时，也可以手动推送已有版本 tag 或在 GitHub Actions 中手动运行 Release workflow。当前 workflow 会创建/更新 GitHub Release 和 release asset，但不自动发布到 Chrome Web Store。
 
 ## Troubleshooting
 
