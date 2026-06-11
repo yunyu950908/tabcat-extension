@@ -21,6 +21,13 @@ export default defineConfig({
       },
     },
     permissions: ['tabs', 'tabGroups', 'storage', 'scripting', 'activeTab'],
+    web_accessible_resources: [
+      {
+        matches: ['<all_urls>'],
+        resources: ['tab-switcher.html'],
+        use_dynamic_url: true,
+      },
+    ],
   },
   modules: ['@wxt-dev/module-react'],
 });

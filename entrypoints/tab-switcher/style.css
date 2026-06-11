@@ -18,6 +18,11 @@ body {
   background: #111318;
 }
 
+body[data-tabcat-switcher-mode='embedded'] {
+  min-width: 0;
+  background: transparent;
+}
+
 button,
 input {
   font-family: inherit;
