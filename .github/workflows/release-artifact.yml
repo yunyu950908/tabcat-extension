@@ -1,0 +1,78 @@
+name: Release Artifact
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Build Release Artifact
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare release
+        id: release
+        run: pnpm release:prepare-artifact
+
+      - name: Compile
+        if: steps.release.outputs.should_release == 'true'
+        run: pnpm compile
+
+      - name: Test
+        if: steps.release.outputs.should_release == 'true'
+        run: pnpm test
+
+      - name: Build
+        if: steps.release.outputs.should_release == 'true'
+        run: pnpm build
+
+      - name: Check built version
+        if: steps.release.outputs.should_release == 'true'
+        run: pnpm check:built-version
+
+      - name: Package
+        if: steps.release.outputs.should_release == 'true'
+        run: pnpm zip
+
+      - name: Upload artifact
+        if: steps.release.outputs.should_release == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tabcat-extension-${{ steps.release.outputs.tag }}
+          path: .output/*.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Create release tag
+        if: steps.release.outputs.create_tag == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "${{ steps.release.outputs.tag }}"
+          git push origin "${{ steps.release.outputs.tag }}"
