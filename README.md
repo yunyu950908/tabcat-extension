@@ -14,6 +14,12 @@ TabCat 基于 WXT、React 和 TypeScript 构建。当前版本专注本地整理
 - 分组操作：支持 Collapse all、Expand all、Undo 和 Ungroup all。
 - 可配置规则：支持忽略域名、最小分组数量、窗口范围、固定标签页、规则命名/合并/忽略，以及配置导入导出。
 
+## 示例
+
+<img width="1706" height="999" alt="TabCat popup and tab grouping example" src="https://github.com/user-attachments/assets/aa0f82ba-249d-45a2-b66c-5d39a7db28a5" />
+
+<img width="1920" height="999" alt="TabCat settings example" src="https://github.com/user-attachments/assets/fcf088c8-7b46-4b22-986c-017fae5583e6" />
+
 ## 隐私优先
 
 TabCat 的默认边界是“只在浏览器本地工作”：
