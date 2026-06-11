@@ -2,7 +2,7 @@
   "name": "tabcat-extension",
   "description": "A Chrome extension for domain-based tab grouping, cleanup, and fast tab switching.",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "packageManager": "pnpm@11.5.2",
   "type": "module",
   "scripts": {
