@@ -3,6 +3,7 @@
   "description": "A Chrome extension for domain-based tab grouping, cleanup, and fast tab switching.",
   "private": true,
   "version": "0.0.0",
+  "packageManager": "pnpm@11.5.2",
   "type": "module",
   "scripts": {
     "dev": "wxt",
@@ -13,6 +14,12 @@
     "zip": "wxt zip",
     "zip:firefox": "wxt zip -b firefox",
     "compile": "tsc --noEmit",
+    "check:built-version": "node scripts/check-built-version.mjs",
+    "check:release-version": "node scripts/check-release-version.mjs",
+    "release:prepare-artifact": "node scripts/prepare-release-artifact.mjs",
+    "release:patch": "pnpm version patch --no-git-tag-version",
+    "release:minor": "pnpm version minor --no-git-tag-version",
+    "release:major": "pnpm version major --no-git-tag-version",
     "postinstall": "wxt prepare"
   },
   "dependencies": {
