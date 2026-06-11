@@ -44,7 +44,10 @@ if (eventName === 'push' && refType === 'branch' && refName === 'main') {
   reason = `Tag ${tag} matches package version ${version}.`;
 } else if (eventName === 'workflow_dispatch') {
   shouldRelease = true;
-  reason = `Manual release artifact run for ${tag}.`;
+  createTag = !remoteTagExists(tag);
+  reason = createTag
+    ? `Manual release artifact run for ${tag}; tag will be created.`
+    : `Manual release artifact run for existing ${tag}.`;
 }
 
 if (shouldRelease && createTag && remoteTagExists(tag)) {
