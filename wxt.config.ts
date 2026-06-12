@@ -20,7 +20,15 @@ export default defineConfig({
         },
       },
     },
-    permissions: ['tabs', 'tabGroups', 'storage', 'scripting', 'activeTab'],
+    permissions: [
+      'tabs',
+      'tabGroups',
+      'storage',
+      'scripting',
+      'activeTab',
+      'history',
+      'bookmarks',
+    ],
     web_accessible_resources: [
       {
         matches: ['<all_urls>'],

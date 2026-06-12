@@ -1,6 +1,6 @@
 # TabCat Extension
 
-TabCat 是一个隐私优先的 Chrome 标签页整理扩展。它可以把未分组标签页按域名归入 Chrome Tab Groups，也可以通过 `Cmd+Shift+K` 打开类似 Raycast 的标签页搜索入口，在大量已打开标签页之间快速跳转。
+TabCat 是一个隐私优先的 Chrome 标签页整理扩展。它可以把未分组标签页按域名归入 Chrome Tab Groups，也可以通过 `Cmd+Shift+K` 打开类似 Raycast 的搜索入口，在大量已打开标签页之间快速跳转，或从历史记录和书签里快速打开网站。
 
 TabCat 基于 WXT、React 和 TypeScript 构建。当前版本专注本地整理、快速搜索和可配置规则，不包含远程 AI 调用，也不会主动把标签页标题、URL 或配置发送到外部服务。
 
@@ -10,7 +10,7 @@ TabCat 基于 WXT、React 和 TypeScript 构建。当前版本专注本地整理
 - 自动加入已有分组：新页面加载完成后，如果存在唯一匹配分组，会自动加入该分组。
 - 分组整理：支持把 grouped tabs 靠左、ungrouped tabs 靠右，并尽量保持原始相对顺序。
 - 幂等操作：重复执行 Group tabs 会复用或合并已有同域名分组，避免生成多个同名 group。
-- 快速搜索跳转：用 `Cmd+Shift+K` 打开悬浮搜索框，搜索标题、URL、域名和 group title。
+- 快速搜索跳转：用 `Cmd+Shift+K` 打开悬浮搜索框，搜索已打开 tab、历史记录和书签。
 - 分组操作：支持 Collapse all、Expand all、Undo 和 Ungroup all。
 - 可配置规则：支持忽略域名、最小分组数量、窗口范围、固定标签页、规则命名/合并/忽略，以及配置导入导出。
 
@@ -26,7 +26,7 @@ TabCat 的默认边界是“只在浏览器本地工作”：
 
 - 不声明 `host_permissions`，不会长期获得所有网站的访问权限。
 - 不读取网页正文、DOM 内容、输入框、cookies 或网络请求。
-- TabCat 自身不向任何外部服务上传 tab 标题、URL、favicon、group 信息或用户配置。
+- TabCat 自身不向任何外部服务上传 tab 标题、URL、favicon、group 信息、历史记录、书签或用户配置。
 - 不包含远程 LLM、分析埋点或第三方数据同步逻辑。
 - 设置写入 Chrome 提供的 `storage.sync`；是否跨设备同步由用户的 Chrome 同步策略决定。
 - 最近一次分组操作只写入 `storage.session`，用于支持 Undo。
@@ -37,6 +37,8 @@ TabCat 使用的 Chrome 权限：
 - `tabGroups`：创建、更新、移动、折叠和展开 Chrome Tab Groups。
 - `storage`：保存用户设置和最近一次分组操作。
 - `scripting` + `activeTab`：用户显式触发 tab switcher 时，在当前活动页面临时创建悬浮搜索入口。
+- `history`：在本地读取最近访问记录，用于 `Cmd+Shift+K` 搜索和打开历史网站。
+- `bookmarks`：在本地读取书签树，用于 `Cmd+Shift+K` 搜索和打开收藏网站。
 
 ## `Cmd+Shift+K` 的工作原理
 
@@ -47,8 +49,8 @@ TabCat 使用的 Chrome 权限：
 1. Chrome 把 `open-tab-switcher` command 发送给 MV3 background service worker。
 2. Background 查询当前活动 tab，并生成一次性的 overlay close token。
 3. TabCat 优先通过 `activeTab` + `scripting` 在当前页面执行一小段脚本，只负责创建 Shadow DOM 容器和 extension iframe。
-4. 真正的搜索界面运行在 TabCat 自己的 extension 页面里；它通过 `tabs` 和 `tabGroups` API 读取已打开 tabs，在本地内存中过滤、排序和展示结果。
-5. 选中结果后，TabCat 只调用 `tabs.update` 和 `windows.update` 激活目标 tab/window。
+4. 真正的搜索界面运行在 TabCat 自己的 extension 页面里；它通过 `tabs`、`tabGroups`、`history` 和 `bookmarks` API 读取本地可搜索项，在本地内存中过滤、排序和展示结果。
+5. 选中已打开 tab 后，TabCat 调用 `tabs.update` 和 `windows.update` 激活目标 tab/window；选中历史记录或书签后，会在触发快捷键的窗口里新开对应 URL。
 6. 按 Escape、点击遮罩或跳转完成后，overlay 会通过带 token 的消息关闭。
 7. 如果当前页是 `chrome://`、Chrome Web Store 等不允许脚本注入的受限页面，TabCat 会自动回退到独立 popup window。
 
@@ -88,7 +90,8 @@ pnpm build
 
 Tab switcher 支持：
 
-- 搜索标题、URL、hostname/root domain 和 group title。
+- 搜索已打开 tab 的标题、URL、hostname/root domain 和 group title。
+- 搜索本地历史记录和书签；已打开的相同 URL 会优先显示为 tab，避免重复结果。
 - 使用 Up/Down 选择结果，Enter 跳转。
 - Escape 关闭搜索框。
 - 在受限页面自动回退到独立 popup window。
