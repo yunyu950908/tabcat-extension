@@ -1,7 +1,10 @@
 import { getDomain } from 'tldts';
 import { normalizeHostname } from './tabGrouping';
 
+const HISTORY_SEARCH_LIMIT = 1200;
 const NO_GROUP_ID = -1;
+
+export type TabSearchItemSource = 'bookmark' | 'history' | 'tab';
 
 export interface TabSearchTabLike {
   active?: boolean;
@@ -23,6 +26,23 @@ export interface TabSearchGroupLike {
   windowId?: number;
 }
 
+export interface TabSearchHistoryLike {
+  id?: string;
+  lastVisitTime?: number;
+  title?: string;
+  typedCount?: number;
+  url?: string;
+  visitCount?: number;
+}
+
+export interface TabSearchBookmarkLike {
+  children?: TabSearchBookmarkLike[];
+  dateAdded?: number;
+  id: string;
+  title?: string;
+  url?: string;
+}
+
 export interface TabSearchContext {
   paletteWindowId?: number;
   sourceGroupId?: number;
@@ -33,18 +53,23 @@ export interface TabSearchContext {
 export interface TabSearchItem {
   active: boolean;
   favIconUrl?: string;
+  folderTitle?: string;
   groupColor?: string;
   groupId: number;
   groupTitle?: string;
   hostname: string;
-  id: number;
+  id?: number;
   index: number;
+  key: string;
   lastAccessed: number;
   pinned: boolean;
   rootDomain?: string;
+  source: TabSearchItemSource;
   title: string;
+  typedCount?: number;
   url: string;
-  windowId: number;
+  visitCount?: number;
+  windowId?: number;
 }
 
 export interface TabSearchResult extends TabSearchItem {
@@ -58,15 +83,26 @@ export interface TabSearchOptions {
   sourceWindowId?: number;
 }
 
+export interface TabSearchActivationOptions {
+  sourceWindowId?: number;
+}
+
 export async function loadTabSearchItems(
   context: TabSearchContext = {},
 ): Promise<TabSearchItem[]> {
-  const [tabs, groups] = await Promise.all([
+  const [tabs, groups, historyEntries, bookmarkTree] = await Promise.all([
     browser.tabs.query({}),
     browser.tabGroups.query({}) as Promise<TabSearchGroupLike[]>,
+    loadHistoryEntries(),
+    loadBookmarkTree(),
   ]);
 
-  return buildTabSearchItems(tabs, groups, context);
+  const tabItems = buildTabSearchItems(tabs, groups, context);
+  const historyByUrl = buildHistoryByUrl(historyEntries);
+  const bookmarkItems = buildBookmarkSearchItems(bookmarkTree, historyByUrl);
+  const historyItems = buildHistorySearchItems(historyEntries);
+
+  return mergeTabSearchItems(tabItems, bookmarkItems, historyItems);
 }
 
 export function buildTabSearchItems(
@@ -88,15 +124,13 @@ export function buildTabSearchItems(
     )
     .map((tab) => {
       const url = tab.url as string;
-      const parsedUrl = parseHttpUrl(url);
-      const hostname = parsedUrl
-        ? normalizeHostname(parsedUrl.hostname)
-        : getDisplayHost(url);
-      const rootDomain = parsedUrl
-        ? getDomain(hostname, { allowPrivateDomains: true }) ?? hostname
-        : undefined;
+      const { hostname, rootDomain, title } = getUrlSearchFields(
+        url,
+        tab.title,
+      );
       const groupId = tab.groupId ?? NO_GROUP_ID;
       const group = groupId !== NO_GROUP_ID ? groupById.get(groupId) : undefined;
+      const id = tab.id as number;
 
       return {
         active: tab.active === true,
@@ -105,16 +139,59 @@ export function buildTabSearchItems(
         groupId,
         groupTitle: group?.title || undefined,
         hostname,
-        id: tab.id as number,
+        id,
         index: tab.index ?? 0,
+        key: `tab:${id}`,
         lastAccessed: tab.lastAccessed ?? 0,
         pinned: tab.pinned === true,
         rootDomain,
-        title: tab.title || hostname || url,
+        source: 'tab',
+        title,
         url,
         windowId: tab.windowId as number,
       };
     });
+}
+
+export function buildHistorySearchItems(
+  historyEntries: TabSearchHistoryLike[],
+): TabSearchItem[] {
+  return historyEntries
+    .filter((entry) => entry.url && parseHttpUrl(entry.url))
+    .map((entry, index) => {
+      const url = entry.url as string;
+      const { hostname, rootDomain, title } = getUrlSearchFields(
+        url,
+        entry.title,
+      );
+
+      return {
+        active: false,
+        groupId: NO_GROUP_ID,
+        hostname,
+        index,
+        key: `history:${entry.id || getUrlKey(url)}`,
+        lastAccessed: entry.lastVisitTime ?? 0,
+        pinned: false,
+        rootDomain,
+        source: 'history',
+        title,
+        typedCount: entry.typedCount,
+        url,
+        visitCount: entry.visitCount,
+      };
+    });
+}
+
+export function buildBookmarkSearchItems(
+  bookmarkTree: TabSearchBookmarkLike[],
+  historyByUrl: Map<string, TabSearchHistoryLike> = new Map(),
+): TabSearchItem[] {
+  const items: TabSearchItem[] = [];
+
+  collectBookmarkSearchItems(bookmarkTree, [], historyByUrl, items);
+
+  return items;
 }
 
 export function filterTabSearchItems(
@@ -140,23 +217,55 @@ export function filterTabSearchItems(
 }
 
 export async function activateTabSearchItem(
-  item: Pick<TabSearchItem, 'id' | 'windowId'>,
+  item: Pick<TabSearchItem, 'id' | 'source' | 'url' | 'windowId'>,
+  options: TabSearchActivationOptions = {},
 ): Promise<void> {
-  await browser.tabs.update(item.id, { active: true });
-  await browser.windows.update(item.windowId, { focused: true });
+  if (item.source === 'tab') {
+    if (item.id == null || item.windowId == null) {
+      throw new Error('Cannot activate a tab result without a tab id.');
+    }
+
+    await browser.tabs.update(item.id, { active: true });
+    await browser.windows.update(item.windowId, { focused: true });
+    return;
+  }
+
+  const createProperties: {
+    active: true;
+    url: string;
+    windowId?: number;
+  } = {
+    active: true,
+    url: item.url,
+  };
+
+  if (options.sourceWindowId != null) {
+    createProperties.windowId = options.sourceWindowId;
+  }
+
+  const createdTab = await browser.tabs.create(createProperties);
+  const windowId = options.sourceWindowId ?? createdTab.windowId;
+
+  if (windowId != null) {
+    await browser.windows.update(windowId, { focused: true });
+  }
 }
 
 export function getTabSearchWindowLabels(
   items: TabSearchItem[],
   sourceWindowId?: number,
 ): Map<number, string> {
-  const windowIds = [...new Set(items.map((item) => item.windowId))].sort(
-    (a, b) => {
-      if (a === sourceWindowId) return -1;
-      if (b === sourceWindowId) return 1;
-      return a - b;
-    },
-  );
+  const windowIds = [
+    ...new Set(
+      items
+        .map((item) => item.windowId)
+        .filter((windowId): windowId is number => windowId != null),
+    ),
+  ].sort((a, b) => {
+    if (a === sourceWindowId) return -1;
+    if (b === sourceWindowId) return 1;
+    return a - b;
+  });
 
   return new Map(
     windowIds.map((windowId, index) => [
@@ -164,6 +273,99 @@ export function getTabSearchWindowLabels(
       windowId === sourceWindowId ? 'Current window' : `Window ${index + 1}`,
     ]),
   );
+}
+
+function collectBookmarkSearchItems(
+  nodes: TabSearchBookmarkLike[],
+  folderPath: string[],
+  historyByUrl: Map<string, TabSearchHistoryLike>,
+  items: TabSearchItem[],
+): void {
+  for (const node of nodes) {
+    if (node.url) {
+      if (!parseHttpUrl(node.url)) {
+        continue;
+      }
+
+      const { hostname, rootDomain, title } = getUrlSearchFields(
+        node.url,
+        node.title,
+      );
+      const historyEntry = historyByUrl.get(getUrlKey(node.url));
+
+      items.push({
+        active: false,
+        folderTitle: folderPath.join(' / ') || undefined,
+        groupId: NO_GROUP_ID,
+        hostname,
+        index: items.length,
+        key: `bookmark:${node.id}`,
+        lastAccessed: historyEntry?.lastVisitTime ?? node.dateAdded ?? 0,
+        pinned: false,
+        rootDomain,
+        source: 'bookmark',
+        title,
+        typedCount: historyEntry?.typedCount,
+        url: node.url,
+        visitCount: historyEntry?.visitCount,
+      });
+
+      continue;
+    }
+
+    const nextFolderPath = node.title
+      ? [...folderPath, node.title]
+      : folderPath;
+
+    if (node.children) {
+      collectBookmarkSearchItems(
+        node.children,
+        nextFolderPath,
+        historyByUrl,
+        items,
+      );
+    }
+  }
+}
+
+function mergeTabSearchItems(
+  tabItems: TabSearchItem[],
+  bookmarkItems: TabSearchItem[],
+  historyItems: TabSearchItem[],
+): TabSearchItem[] {
+  const openUrlKeys = new Set(tabItems.map((item) => getUrlKey(item.url)));
+  const bookmarkUrlKeys = new Set<string>();
+  const mergedItems = [...tabItems];
+
+  for (const item of bookmarkItems) {
+    const urlKey = getUrlKey(item.url);
+
+    if (openUrlKeys.has(urlKey) || bookmarkUrlKeys.has(urlKey)) {
+      continue;
+    }
+
+    bookmarkUrlKeys.add(urlKey);
+    mergedItems.push(item);
+  }
+
+  const historyUrlKeys = new Set<string>();
+
+  for (const item of historyItems) {
+    const urlKey = getUrlKey(item.url);
+
+    if (
+      openUrlKeys.has(urlKey) ||
+      bookmarkUrlKeys.has(urlKey) ||
+      historyUrlKeys.has(urlKey)
+    ) {
+      continue;
+    }
+
+    historyUrlKeys.add(urlKey);
+    mergedItems.push(item);
+  }
+
+  return mergedItems;
 }
 
 function scoreTabSearchItem(
@@ -196,6 +398,8 @@ function scoreToken(item: TabSearchItem, token: string): number | null {
     { value: item.hostname, starts: 100, includes: 70, fuzzy: 15 },
     { value: item.rootDomain ?? '', starts: 95, includes: 65, fuzzy: 15 },
     { value: item.groupTitle ?? '', starts: 90, includes: 60, fuzzy: 15 },
+    { value: item.folderTitle ?? '', starts: 76, includes: 52, fuzzy: 12 },
+    { value: getSourceLabel(item.source), starts: 70, includes: 45, fuzzy: 10 },
     { value: item.url, starts: 55, includes: 35, fuzzy: 8 },
   ];
 
@@ -230,7 +434,7 @@ function getContextScore(
   item: TabSearchItem,
   options: TabSearchOptions,
 ): number {
-  let score = 0;
+  let score = getSourceScore(item.source);
 
   if (item.windowId === options.sourceWindowId) {
     score += 35;
@@ -259,6 +463,17 @@ function getContextScore(
   return score;
 }
 
+function getSourceScore(source: TabSearchItemSource): number {
+  switch (source) {
+    case 'tab':
+      return 45;
+    case 'bookmark':
+      return 12;
+    case 'history':
+      return 0;
+  }
+}
+
 function getRecencyScore(item: TabSearchItem): number {
   if (!item.lastAccessed) {
     return 0;
@@ -273,12 +488,28 @@ function compareTabSearchResults(
 ): number {
   return (
     b.score - a.score ||
+    getSourceRank(b.source) - getSourceRank(a.source) ||
     Number(b.active) - Number(a.active) ||
     b.lastAccessed - a.lastAccessed ||
-    a.windowId - b.windowId ||
+    getComparableWindowId(a) - getComparableWindowId(b) ||
     a.index - b.index ||
-    a.id - b.id
+    a.key.localeCompare(b.key)
   );
+}
+
+function getSourceRank(source: TabSearchItemSource): number {
+  switch (source) {
+    case 'tab':
+      return 3;
+    case 'bookmark':
+      return 2;
+    case 'history':
+      return 1;
+  }
+}
+
+function getComparableWindowId(item: TabSearchItem): number {
+  return item.windowId ?? Number.MAX_SAFE_INTEGER;
 }
 
 function normalizeQuery(query: string): string[] {
@@ -308,6 +539,29 @@ function isSubsequence(needle: string, haystack: string): boolean {
   return true;
 }
 
+function getUrlSearchFields(
+  url: string,
+  fallbackTitle?: string,
+): {
+  hostname: string;
+  rootDomain?: string;
+  title: string;
+} {
+  const parsedUrl = parseHttpUrl(url);
+  const hostname = parsedUrl
+    ? normalizeHostname(parsedUrl.hostname)
+    : getDisplayHost(url);
+  const rootDomain = parsedUrl
+    ? getDomain(hostname, { allowPrivateDomains: true }) ?? hostname
+    : undefined;
+
+  return {
+    hostname,
+    rootDomain,
+    title: fallbackTitle || hostname || url,
+  };
+}
+
 function parseHttpUrl(url: string): URL | null {
   try {
     const parsedUrl = new URL(url);
@@ -329,6 +583,96 @@ function getDisplayHost(url: string): string {
     return normalizeHostname(parsedUrl.hostname || parsedUrl.protocol);
   } catch {
     return '';
+  }
+}
+
+function getUrlKey(url: string): string {
+  try {
+    const parsedUrl = new URL(url);
+    parsedUrl.hash = '';
+
+    return parsedUrl.href;
+  } catch {
+    return url.trim().toLowerCase();
+  }
+}
+
+function buildHistoryByUrl(
+  historyEntries: TabSearchHistoryLike[],
+): Map<string, TabSearchHistoryLike> {
+  const historyByUrl = new Map<string, TabSearchHistoryLike>();
+
+  for (const entry of historyEntries) {
+    if (!entry.url || !parseHttpUrl(entry.url)) {
+      continue;
+    }
+
+    const urlKey = getUrlKey(entry.url);
+    const existingEntry = historyByUrl.get(urlKey);
+
+    if (
+      !existingEntry ||
+      (entry.lastVisitTime ?? 0) > (existingEntry.lastVisitTime ?? 0)
+    ) {
+      historyByUrl.set(urlKey, entry);
+    }
+  }
+
+  return historyByUrl;
+}
+
+function getSourceLabel(source: TabSearchItemSource): string {
+  switch (source) {
+    case 'tab':
+      return 'Tab';
+    case 'bookmark':
+      return 'Bookmark';
+    case 'history':
+      return 'History';
+  }
+}
+
+async function loadHistoryEntries(): Promise<TabSearchHistoryLike[]> {
+  const historyApi = browser.history as
+    | {
+        search(query: {
+          maxResults?: number;
+          startTime?: number;
+          text: string;
+        }): Promise<TabSearchHistoryLike[]>;
+      }
+    | undefined;
+
+  if (!historyApi?.search) {
+    return [];
+  }
+
+  try {
+    return await historyApi.search({
+      maxResults: HISTORY_SEARCH_LIMIT,
+      startTime: 0,
+      text: '',
+    });
+  } catch {
+    return [];
+  }
+}
+
+async function loadBookmarkTree(): Promise<TabSearchBookmarkLike[]> {
+  const bookmarksApi = browser.bookmarks as
+    | {
+        getTree(): Promise<TabSearchBookmarkLike[]>;
+      }
+    | undefined;
+
+  if (!bookmarksApi?.getTree) {
+    return [];
+  }
+
+  try {
+    return await bookmarksApi.getTree();
+  } catch {
+    return [];
   }
 }
 

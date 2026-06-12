@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   activateTabSearchItem,
+  buildBookmarkSearchItems,
+  buildHistorySearchItems,
   buildTabSearchItems,
   filterTabSearchItems,
   getTabSearchWindowLabels,
@@ -60,9 +62,11 @@ describe('tab search items', () => {
         hostname: 'docs.google.com',
         id: 1,
         index: 0,
+        key: 'tab:1',
         lastAccessed: 1_700_000_000_000,
         pinned: false,
         rootDomain: 'google.com',
+        source: 'tab',
         title: 'Quarterly Plan',
         url: 'https://docs.google.com/document',
         windowId: 1,
@@ -76,12 +80,78 @@ describe('tab search items', () => {
         hostname: 'extensions',
         id: 2,
         index: 1,
+        key: 'tab:2',
         lastAccessed: 0,
         pinned: false,
         rootDomain: undefined,
+        source: 'tab',
         title: 'Extensions',
         url: 'chrome://extensions',
         windowId: 1,
+      },
+    ]);
+  });
+
+  it('builds searchable history and bookmark items', () => {
+    expect(
+      buildHistorySearchItems([
+        {
+          id: '99',
+          lastVisitTime: 1_700_000_000_000,
+          title: 'Linear Roadmap',
+          typedCount: 2,
+          url: 'https://linear.app/acme/roadmap',
+          visitCount: 8,
+        },
+        {
+          id: '100',
+          title: 'Extensions',
+          url: 'chrome://extensions',
+        },
+      ]),
+    ).toMatchObject([
+      {
+        hostname: 'linear.app',
+        key: 'history:99',
+        rootDomain: 'linear.app',
+        source: 'history',
+        title: 'Linear Roadmap',
+        typedCount: 2,
+        url: 'https://linear.app/acme/roadmap',
+        visitCount: 8,
+      },
+    ]);
+
+    expect(
+      buildBookmarkSearchItems([
+        {
+          children: [
+            {
+              children: [
+                {
+                  dateAdded: 1_600_000_000_000,
+                  id: 'bookmark-1',
+                  title: 'Design System',
+                  url: 'https://design.example.com',
+                },
+              ],
+              id: 'folder-1',
+              title: 'Work',
+            },
+          ],
+          id: 'root',
+          title: '',
+        },
+      ]),
+    ).toMatchObject([
+      {
+        folderTitle: 'Work',
+        hostname: 'design.example.com',
+        key: 'bookmark:bookmark-1',
+        rootDomain: 'example.com',
+        source: 'bookmark',
+        title: 'Design System',
+        url: 'https://design.example.com',
       },
     ]);
   });
@@ -112,6 +182,57 @@ describe('tab search filtering', () => {
     expect(filterTabSearchItems(items, 'google')).toMatchObject([{ id: 1 }]);
     expect(filterTabSearchItems(items, 'pull 28')).toMatchObject([{ id: 2 }]);
     expect(filterTabSearchItems(items, 'source')).toMatchObject([{ id: 2 }]);
+  });
+
+  it('matches bookmark folders and result sources', () => {
+    const items = [
+      item(1, {
+        folderTitle: 'Research',
+        hostname: 'archive.example.com',
+        key: 'bookmark:1',
+        source: 'bookmark',
+        title: 'Archive Notes',
+        url: 'https://archive.example.com',
+      }),
+      item(2, {
+        hostname: 'calendar.example.com',
+        key: 'history:2',
+        source: 'history',
+        title: 'Calendar',
+        url: 'https://calendar.example.com',
+      }),
+    ];
+
+    expect(filterTabSearchItems(items, 'research')).toMatchObject([
+      { key: 'bookmark:1' },
+    ]);
+    expect(filterTabSearchItems(items, 'history')).toMatchObject([
+      { key: 'history:2' },
+    ]);
+  });
+
+  it('prefers open tabs over matching bookmarks and history when signals tie', () => {
+    const items = [
+      item(1, {
+        key: 'history:1',
+        source: 'history',
+        title: 'Example dashboard',
+      }),
+      item(2, {
+        key: 'bookmark:2',
+        source: 'bookmark',
+        title: 'Example dashboard',
+      }),
+      item(3, {
+        key: 'tab:3',
+        source: 'tab',
+        title: 'Example dashboard',
+      }),
+    ];
+
+    expect(
+      filterTabSearchItems(items, 'example').map((result) => result.key),
+    ).toEqual(['tab:3', 'bookmark:2', 'history:1']);
   });
 
   it('boosts current-window and current-group results', () => {
@@ -206,6 +327,36 @@ describe('tab search activation', () => {
     expect(updateTab).toHaveBeenCalledWith(42, { active: true });
     expect(updateWindow).toHaveBeenCalledWith(7, { focused: true });
   });
+
+  it('opens history and bookmark results in the source window', async () => {
+    const createTab = vi.fn(async () => ({ windowId: 7 }));
+    const updateWindow = vi.fn(async () => ({}));
+
+    vi.stubGlobal('browser', {
+      tabs: {
+        create: createTab,
+      },
+      windows: {
+        update: updateWindow,
+      },
+    });
+
+    await activateTabSearchItem(
+      item(42, {
+        source: 'bookmark',
+        url: 'https://example.com/docs',
+        windowId: undefined,
+      }),
+      { sourceWindowId: 7 },
+    );
+
+    expect(createTab).toHaveBeenCalledWith({
+      active: true,
+      url: 'https://example.com/docs',
+      windowId: 7,
+    });
+    expect(updateWindow).toHaveBeenCalledWith(7, { focused: true });
+  });
 });
 
 function tab(
@@ -233,9 +384,11 @@ function item(id: number, overrides: Partial<TabSearchItem> = {}): TabSearchItem
     hostname: 'example.com',
     id,
     index: id - 1,
+    key: `tab:${id}`,
     lastAccessed: 0,
     pinned: false,
     rootDomain: 'example.com',
+    source: 'tab',
     title: `Example ${id}`,
     url: `https://example.com/${id}`,
     windowId: 1,

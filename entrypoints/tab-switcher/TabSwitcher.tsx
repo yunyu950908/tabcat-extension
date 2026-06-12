@@ -72,7 +72,7 @@ function TabSwitcher() {
       })
       .catch(() => {
         if (!isMounted) return;
-        setError('Could not load tabs.');
+        setError('Could not load search items.');
       })
       .finally(() => {
         if (!isMounted) return;
@@ -118,7 +118,9 @@ function TabSwitcher() {
     setIsActivating(true);
 
     try {
-      await activateTabSearchItem(item);
+      await activateTabSearchItem(item, {
+        sourceWindowId: context.sourceWindowId,
+      });
       await closePaletteWindow({
         closeToken,
         isEmbedded,
@@ -175,8 +177,8 @@ function TabSwitcher() {
           </div>
           <input
             ref={inputRef}
-            aria-label="Search tabs"
-            placeholder="Search tabs"
+            aria-label="Search tabs, history, and bookmarks"
+            placeholder="Search tabs, history, bookmarks"
             value={query}
             onChange={(event) => {
               setInputMode('keyboard');
@@ -188,20 +190,25 @@ function TabSwitcher() {
         </div>
 
         <section className="results-panel" aria-live="polite">
-          {isLoading && <EmptyState label="Loading tabs..." />}
+          {isLoading && <EmptyState label="Loading search items..." />}
           {!isLoading && error && <EmptyState label={error} tone="error" />}
           {!isLoading && !error && results.length === 0 && (
-            <EmptyState label={query ? 'No matching tabs' : 'No tabs found'} />
+            <EmptyState
+              label={query ? 'No matching pages' : 'No searchable pages found'}
+            />
           )}
           {!isLoading &&
             !error &&
             results.map((item, index) => (
               <ResultItem
-                key={item.id}
+                key={item.key}
                 item={item}
                 isSelected={index === selectedIndex}
                 windowLabel={
-                  windowLabels.get(item.windowId) ?? `Window ${item.windowId}`
+                  item.windowId == null
+                    ? undefined
+                    : windowLabels.get(item.windowId) ??
+                      `Window ${item.windowId}`
                 }
                 onActivate={() => {
                   void activateSelectedItem(item);
@@ -229,7 +236,7 @@ function ResultItem({
   item: TabSearchResult;
   onActivate: () => void;
   onPointerSelect: () => void;
-  windowLabel: string;
+  windowLabel?: string;
 }) {
   return (
     <button
@@ -256,6 +263,10 @@ function ResultItem({
         <span className="result-title">{item.title}</span>
         <span className="result-meta">
           <span>{item.hostname || item.url}</span>
+          <span aria-hidden="true">/</span>
+          <span className={`source-chip source-chip-${item.source}`}>
+            {getSourceLabel(item.source)}
+          </span>
           {item.groupTitle && (
             <>
               <span aria-hidden="true">/</span>
@@ -268,8 +279,18 @@ function ResultItem({
               </span>
             </>
           )}
-          <span aria-hidden="true">/</span>
-          <span>{windowLabel}</span>
+          {item.folderTitle && (
+            <>
+              <span aria-hidden="true">/</span>
+              <span>{item.folderTitle}</span>
+            </>
+          )}
+          {windowLabel && (
+            <>
+              <span aria-hidden="true">/</span>
+              <span>{windowLabel}</span>
+            </>
+          )}
           {item.active && (
             <>
               <span aria-hidden="true">/</span>
@@ -384,6 +405,17 @@ function getFallbackIcon(item: TabSearchItem): string {
   return (item.hostname || item.title || '?').slice(0, 1).toUpperCase();
 }
 
+function getSourceLabel(source: TabSearchItem['source']): string {
+  switch (source) {
+    case 'tab':
+      return 'Tab';
+    case 'bookmark':
+      return 'Bookmark';
+    case 'history':
+      return 'History';
+  }
+}
+
 function getGroupColor(color?: string): string {
   const colors: Record<string, string> = {
     blue: '#1a73e8',
@@ -405,7 +437,7 @@ function getErrorMessage(error: unknown): string {
     return error.message;
   }
 
-  return 'Could not load tabs.';
+  return 'Could not load search items.';
 }
 
 export default TabSwitcher;
