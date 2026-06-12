@@ -14,6 +14,27 @@ TabCat 基于 WXT、React 和 TypeScript 构建。当前版本专注本地整理
 - 分组操作：支持 Collapse all、Expand all、Undo 和 Ungroup all。
 - 可配置规则：支持忽略域名、最小分组数量、窗口范围、固定标签页、规则命名/合并/忽略，以及配置导入导出。
 
+## TL;DR 安装（Release ZIP）
+
+不想从源码构建时，直接使用 GitHub Release 里的 Chrome 扩展压缩包：
+
+1. 打开 [TabCat latest release](https://github.com/yunyu950908/tabcat-extension/releases/latest)。
+2. 下载最新 release assets 里的 `tabcat-extension-*-chrome.zip`。
+3. 解压到一个长期保留的位置，例如 `~/Applications/TabCat` 或 `~/Downloads/tabcat-extension`。
+4. 在 Chrome 打开 `chrome://extensions`。
+5. 开启 Developer mode。
+6. 点击 Load unpacked。
+7. 选择刚才解压后的扩展目录，也就是包含 `manifest.json` 的目录。
+8. 可选：把 TabCat 固定到浏览器工具栏。
+
+可以把下面这段直接交给 LLM 或本机自动化 agent：
+
+```text
+请帮我安装 TabCat Chrome 扩展。打开 https://github.com/yunyu950908/tabcat-extension/releases/latest，下载最新 release assets 中名为 tabcat-extension-*-chrome.zip 的压缩包，解压到一个长期保留的位置，然后在 Chrome 的 chrome://extensions 页面开启 Developer mode，点击 Load unpacked，选择解压后包含 manifest.json 的目录。不要从源码构建，也不要运行 pnpm install/pnpm build；只使用 release zip 安装。安装完成后把 TabCat 固定到工具栏，并提醒我后续更新时需要重新下载新版 release zip、解压覆盖或换目录后在 chrome://extensions 中 reload。
+```
+
+注意：Chrome 不能直接安装未上架商店的 `zip`；需要先解压，再通过 Load unpacked 加载解压后的目录。
+
 ## 示例
 
 <img width="1706" height="999" alt="TabCat popup and tab grouping example" src="https://github.com/user-attachments/assets/aa0f82ba-249d-45a2-b66c-5d39a7db28a5" />
@@ -53,27 +74,6 @@ TabCat 使用的 Chrome 权限：
 7. 如果当前页是 `chrome://`、Chrome Web Store 等不允许脚本注入的受限页面，TabCat 会自动回退到独立 popup window。
 
 这个设计的重点是：快捷键由 Chrome extension command 触发，不依赖网页里的全局键盘监听；页面注入只发生在用户按下快捷键之后，并且注入脚本不读取页面内容。
-
-## TL;DR 安装（Release ZIP）
-
-不想从源码构建时，直接使用 GitHub Release 里的 Chrome 扩展压缩包：
-
-1. 打开 [TabCat latest release](https://github.com/yunyu950908/tabcat-extension/releases/latest)。
-2. 下载最新 release assets 里的 `tabcat-extension-*-chrome.zip`。
-3. 解压到一个长期保留的位置，例如 `~/Applications/TabCat` 或 `~/Downloads/tabcat-extension`。
-4. 在 Chrome 打开 `chrome://extensions`。
-5. 开启 Developer mode。
-6. 点击 Load unpacked。
-7. 选择刚才解压后的扩展目录，也就是包含 `manifest.json` 的目录。
-8. 可选：把 TabCat 固定到浏览器工具栏。
-
-可以把下面这段直接交给 LLM 或本机自动化 agent：
-
-```text
-请帮我安装 TabCat Chrome 扩展。打开 https://github.com/yunyu950908/tabcat-extension/releases/latest，下载最新 release assets 中名为 tabcat-extension-*-chrome.zip 的压缩包，解压到一个长期保留的位置，然后在 Chrome 的 chrome://extensions 页面开启 Developer mode，点击 Load unpacked，选择解压后包含 manifest.json 的目录。不要从源码构建，也不要运行 pnpm install/pnpm build；只使用 release zip 安装。安装完成后把 TabCat 固定到工具栏，并提醒我后续更新时需要重新下载新版 release zip、解压覆盖或换目录后在 chrome://extensions 中 reload。
-```
-
-注意：Chrome 不能直接安装未上架商店的 `zip`；需要先解压，再通过 Load unpacked 加载解压后的目录。
 
 ## 从源码本地加载
 
